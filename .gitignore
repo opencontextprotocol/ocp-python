@@ -67,9 +67,6 @@ venv.bak/
 .DS_Store
 Thumbs.db
 
-# Poetry
-poetry.lock
-
 # mypy
 .mypy_cache/
 .dmypy.json
