@@ -119,17 +119,57 @@ class OCPSchemaDiscovery:
             raw_spec=spec_data
         )
     
+    def _normalize_tool_name(self, name: str) -> str:
+        """Normalize tool name to camelCase, removing special characters.
+        
+        Converts various naming patterns to consistent camelCase:
+        - 'meta/root' → 'metaRoot'
+        - 'repos/disable-vulnerability-alerts' → 'reposDisableVulnerabilityAlerts'
+        - 'admin_apps_approve' → 'adminAppsApprove'
+        - 'FetchAccount' → 'fetchAccount'
+        - 'v2010/Accounts' → 'v2010Accounts'
+        - 'get_users_list' → 'getUsersList'
+        - 'SMS/send' → 'smsSend'
+        """
+        import re
+        
+        # Handle empty or None names
+        if not name:
+            return name
+            
+        # First, split PascalCase/camelCase words (e.g., "FetchAccount" -> "Fetch Account")
+        # Insert space before uppercase letters that follow lowercase letters or digits
+        pascal_split = re.sub(r'([a-z0-9])([A-Z])', r'\1 \2', name)
+        
+        # Replace separators (/, _, -, .) with spaces for processing
+        # Also handle multiple consecutive separators like //
+        normalized = re.sub(r'[/_.-]+', ' ', pascal_split)
+        
+        # Split into words and filter out empty strings
+        words = [word for word in normalized.split() if word]
+        
+        if not words:
+            return name
+            
+        # Convert to camelCase: first word lowercase, rest capitalize
+        camel_case_words = [words[0].lower()]
+        for word in words[1:]:
+            camel_case_words.append(word.capitalize())
+                
+        return ''.join(camel_case_words)
+    
     def _create_tool_from_operation(self, path: str, method: str, operation: Dict[str, Any]) -> Optional[OCPTool]:
         """Create OCP tool from OpenAPI operation"""
         
         # Generate tool name
         operation_id = operation.get('operationId')
         if operation_id:
-            tool_name = operation_id
+            tool_name = self._normalize_tool_name(operation_id)
         else:
             # Generate name from path and method
             clean_path = path.replace('/', '_').replace('{', '').replace('}', '')
-            tool_name = f"{method.lower()}{clean_path}"
+            fallback_name = f"{method.lower()}{clean_path}"
+            tool_name = self._normalize_tool_name(fallback_name)
         
         # Get description
         description = operation.get('summary', '') or operation.get('description', '')

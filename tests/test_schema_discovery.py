@@ -18,7 +18,7 @@ class TestOCPSchemaDiscovery:
     
     @pytest.fixture
     def sample_openapi_spec(self):
-        """Sample OpenAPI specification for testing."""
+        """Basic OpenAPI specification without operationIds for testing fallback naming."""
         return {
             "openapi": "3.0.0",
             "info": {
@@ -78,6 +78,129 @@ class TestOCPSchemaDiscovery:
             }
         }
     
+    @pytest.fixture
+    def openapi_spec_with_operation_ids(self):
+        """OpenAPI spec with various operationId patterns for testing normalization."""
+        return {
+            "openapi": "3.0.0",
+            "info": {
+                "title": "Test API with Operation IDs",
+                "version": "1.0.0"
+            },
+            "servers": [
+                {"url": "https://api.example.com"}
+            ],
+            "paths": {
+                "/meta": {
+                    "get": {
+                        "operationId": "meta/root",  # GitHub pattern - slash separator
+                        "summary": "Get API root",
+                        "description": "Get API metadata"
+                    }
+                },
+                "/repos/alerts": {
+                    "post": {
+                        "operationId": "repos/disable-vulnerability-alerts",  # GitHub pattern - multiple words
+                        "summary": "Disable vulnerability alerts",
+                        "description": "Disable vulnerability alerts for repository"
+                    }
+                },
+                "/admin/apps": {
+                    "put": {
+                        "operationId": "admin_apps_approve",  # Slack pattern - underscore separator
+                        "summary": "Approve app",
+                        "description": "Approve an application"
+                    }
+                },
+                "/accounts": {
+                    "get": {
+                        "operationId": "FetchAccount",  # Twilio pattern - PascalCase
+                        "summary": "Fetch account",
+                        "description": "Fetch account details"
+                    },
+                    "post": {
+                        "operationId": "CreateAccount",  # Twilio pattern - PascalCase
+                        "summary": "Create account", 
+                        "description": "Create new account"
+                    }
+                },
+                "/v2010/accounts": {
+                    "get": {
+                        "operationId": "v2010/Accounts",  # Version number with slash
+                        "summary": "List v2010 accounts",
+                        "description": "List accounts from v2010 API"
+                    }
+                },
+                "/sms": {
+                    "post": {
+                        "operationId": "SMS/send",  # Acronym preservation test
+                        "summary": "Send SMS",
+                        "description": "Send SMS message"
+                    }
+                },
+                "/users/no-operation-id": {
+                    "get": {
+                        # No operationId - should use fallback naming
+                        "summary": "Get users without operation ID",
+                        "description": "Test fallback naming when no operationId present"
+                    }
+                },
+                "/api//double-slash": {
+                    "get": {
+                        "operationId": "api//users",  # Multiple consecutive separators
+                        "summary": "Test double slash",
+                        "description": "Test handling of multiple separators"
+                    }
+                }
+            }
+        }
+    
+    @pytest.fixture  
+    def openapi_spec_edge_cases(self):
+        """OpenAPI spec with edge cases for testing robustness."""
+        return {
+            "openapi": "3.0.0", 
+            "info": {
+                "title": "Edge Cases API",
+                "version": "1.0.0"
+            },
+            "servers": [
+                {"url": "https://api.example.com"}
+            ],
+            "paths": {
+                "/empty-operation-id": {
+                    "get": {
+                        "operationId": "",  # Empty operationId
+                        "summary": "Empty operation ID test"
+                    }
+                },
+                "/single-char": {
+                    "get": {
+                        "operationId": "a",  # Single character
+                        "summary": "Single character test"
+                    }
+                },
+                "/only-separators": {
+                    "get": {
+                        "operationId": "///",  # Only separators
+                        "summary": "Only separators test"
+                    }
+                },
+                "/mixed-separators": {
+                    "get": {
+                        "operationId": "api-v1/users_list.all",  # Mixed separator types
+                        "summary": "Mixed separators test"
+                    }
+                },
+                "/preserve-acronyms": {
+                    "get": {
+                        "operationId": "get_API_HTTP_URL",  # Multiple acronyms
+                        "summary": "Acronym preservation test"
+                    }
+                }
+            }
+        }
+    
     def test_parse_openapi_spec(self, discovery, sample_openapi_spec):
         """Test parsing OpenAPI specification."""
         api_spec = discovery._parse_openapi_spec(
@@ -103,13 +226,13 @@ class TestOCPSchemaDiscovery:
         
         # Check that we have the expected tools with deterministic names
         tool_names = [t.name for t in tools]
-        expected_names = ["get_users", "post_users", "get_users_id"]  # Based on naming logic
+        expected_names = ["getUsers", "postUsers", "getUsersId"]  # camelCase naming
         
         for expected_name in expected_names:
             assert expected_name in tool_names, f"Expected tool name '{expected_name}' not found in {tool_names}"
         
         # Check GET /users tool
-        get_users = next((t for t in tools if t.name == "get_users"), None)
+        get_users = next((t for t in tools if t.name == "getUsers"), None)
         assert get_users is not None
         assert get_users.method == "GET"
         assert get_users.path == "/users"
@@ -120,7 +243,7 @@ class TestOCPSchemaDiscovery:
         assert not get_users.parameters["limit"]["required"]
         
         # Check POST /users tool
-        post_users = next((t for t in tools if t.name == "post_users"), None)
+        post_users = next((t for t in tools if t.name == "postUsers"), None)
         assert post_users is not None
         assert post_users.method == "POST"
         assert post_users.path == "/users"
@@ -130,13 +253,141 @@ class TestOCPSchemaDiscovery:
         assert post_users.parameters["email"]["required"]
         
         # Check GET /users/{id} tool
-        get_users_id = next((t for t in tools if t.name == "get_users_id"), None)
+        get_users_id = next((t for t in tools if t.name == "getUsersId"), None)
         assert get_users_id is not None
         assert get_users_id.method == "GET"
         assert get_users_id.path == "/users/{id}"
         assert "id" in get_users_id.parameters
         assert get_users_id.parameters["id"]["location"] == "path"
         assert get_users_id.parameters["id"]["required"]
+    
+    def test_normalize_tool_name_slash_separators(self, discovery):
+        """Test normalization of operationId with slash separators."""
+        assert discovery._normalize_tool_name("meta/root") == "metaRoot"
+        assert discovery._normalize_tool_name("repos/disable-vulnerability-alerts") == "reposDisableVulnerabilityAlerts"
+        assert discovery._normalize_tool_name("users/list-followers") == "usersListFollowers"
+        
+    def test_normalize_tool_name_underscore_separators(self, discovery):
+        """Test normalization of operationId with underscore separators."""
+        assert discovery._normalize_tool_name("admin_apps_approve") == "adminAppsApprove"
+        assert discovery._normalize_tool_name("chat_post_message") == "chatPostMessage"
+        assert discovery._normalize_tool_name("users_list_all") == "usersListAll"
+        
+    def test_normalize_tool_name_pascal_case(self, discovery):
+        """Test normalization of PascalCase operationIds."""
+        assert discovery._normalize_tool_name("FetchAccount") == "fetchAccount"
+        assert discovery._normalize_tool_name("CreateAccount") == "createAccount"
+        assert discovery._normalize_tool_name("ListAvailablePhoneNumberLocal") == "listAvailablePhoneNumberLocal"
+        
+    def test_normalize_tool_name_numbers_preserved(self, discovery):
+        """Test that numbers are preserved in normalization."""
+        assert discovery._normalize_tool_name("v2010/Accounts") == "v2010Accounts"
+        assert discovery._normalize_tool_name("api_v2_users") == "apiV2Users"
+        assert discovery._normalize_tool_name("get-v3-repos") == "getV3Repos"
+        
+    def test_normalize_tool_name_acronyms_preserved(self, discovery):
+        """Test that acronyms are converted to camelCase."""
+        assert discovery._normalize_tool_name("SMS/send") == "smsSend" 
+        assert discovery._normalize_tool_name("api/HTTP_request") == "apiHttpRequest"
+        assert discovery._normalize_tool_name("get_API_key") == "getApiKey"
+        
+    def test_normalize_tool_name_fallback_patterns(self, discovery):
+        """Test normalization of fallback generated names."""
+        assert discovery._normalize_tool_name("get_users") == "getUsers"
+        assert discovery._normalize_tool_name("post_users") == "postUsers"
+        assert discovery._normalize_tool_name("get_users_id") == "getUsersId"
+        assert discovery._normalize_tool_name("delete_repos_issues_comments_id") == "deleteReposIssuesCommentsId"
+        
+    def test_normalize_tool_name_multiple_separators(self, discovery):
+        """Test handling of multiple consecutive separators."""
+        assert discovery._normalize_tool_name("api//users") == "apiUsers"
+        assert discovery._normalize_tool_name("admin___apps") == "adminApps"
+        assert discovery._normalize_tool_name("repos---list") == "reposList"
+        assert discovery._normalize_tool_name("api./..users") == "apiUsers"
+        
+    def test_normalize_tool_name_edge_cases(self, discovery):
+        """Test edge cases for normalization."""
+        # Empty and None
+        assert discovery._normalize_tool_name("") == ""
+        assert discovery._normalize_tool_name(None) == None
+        
+        # Single character  
+        assert discovery._normalize_tool_name("a") == "a"
+        assert discovery._normalize_tool_name("A") == "a"
+        
+        # Only separators should return original
+        assert discovery._normalize_tool_name("///") == "///"
+        assert discovery._normalize_tool_name("___") == "___"
+        
+        # Single word
+        assert discovery._normalize_tool_name("users") == "users"
+        assert discovery._normalize_tool_name("USERS") == "users"
+    
+    def test_operation_id_integration(self, discovery, openapi_spec_with_operation_ids):
+        """Test that operationId normalization works in full tool generation flow."""
+        api_spec = discovery._parse_openapi_spec(
+            openapi_spec_with_operation_ids, 
+            "https://api.example.com"
+        )
+        
+        tools = api_spec.tools
+        tool_names = [t.name for t in tools]
+        
+        # Verify normalized operationId names
+        expected_names = [
+            "metaRoot",                           # meta/root
+            "reposDisableVulnerabilityAlerts",    # repos/disable-vulnerability-alerts  
+            "adminAppsApprove",                   # admin_apps_approve
+            "fetchAccount",                       # FetchAccount
+            "createAccount",                      # CreateAccount
+            "v2010Accounts",                      # v2010/Accounts
+            "smsSend",                            # SMS/send
+            "getUsersNoOperationId",              # fallback: get + /users/no-operation-id
+            "apiUsers"                            # api//users
+        ]
+        
+        for expected_name in expected_names:
+            assert expected_name in tool_names, f"Expected tool name '{expected_name}' not found in {tool_names}"
+            
+        # Verify specific tools have correct properties
+        meta_tool = next((t for t in tools if t.name == "metaRoot"), None)
+        assert meta_tool is not None
+        assert meta_tool.operation_id == "meta/root"  # Original preserved
+        assert meta_tool.method == "GET"
+        assert meta_tool.path == "/meta"
+        
+        # Test acronym preservation
+        sms_tool = next((t for t in tools if t.name == "smsSend"), None)
+        assert sms_tool is not None
+        assert sms_tool.operation_id == "SMS/send"
+        
+        # Test fallback naming for missing operationId
+        fallback_tool = next((t for t in tools if t.name == "getUsersNoOperationId"), None)
+        assert fallback_tool is not None
+        assert fallback_tool.operation_id is None  # No operationId in spec
+        
+    def test_edge_cases_integration(self, discovery, openapi_spec_edge_cases):
+        """Test edge cases in full tool generation flow."""
+        api_spec = discovery._parse_openapi_spec(
+            openapi_spec_edge_cases,
+            "https://api.example.com"
+        )
+        
+        tools = api_spec.tools
+        tool_names = [t.name for t in tools]
+        
+        # Test edge case handling
+        expected_behaviors = [
+            # For empty operationId, should fall back to path-based naming
+            "getEmptyOperationId",     # Empty operationId falls back to path
+            "a",                       # Single character preserved
+            "///",                     # Only separators preserved as-is
+            "apiV1UsersListAll",       # Mixed separators normalized
+            "getApiHttpUrl"            # Multiple acronyms preserved
+        ]
+        
+        for expected_name in expected_behaviors:
+            assert expected_name in tool_names, f"Expected tool name '{expected_name}' not found in {tool_names}"
     
     @patch('requests.get')
     def test_discover_api_success(self, mock_get, discovery, sample_openapi_spec):
