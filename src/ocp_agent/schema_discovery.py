@@ -7,11 +7,14 @@ enabling context-aware API interactions with zero infrastructure requirements.
 
 import json
 import requests
+import logging
 from typing import Dict, List, Any, Optional, Union
 from dataclasses import dataclass
 from urllib.parse import urljoin
 
 from .errors import SchemaDiscoveryError
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class OCPTool:
@@ -158,18 +161,54 @@ class OCPSchemaDiscovery:
                 
         return ''.join(camel_case_words)
     
+    def _is_valid_tool_name(self, name: str) -> bool:
+        """Check if a normalized tool name is valid.
+        
+        A valid tool name must:
+        - Not be empty
+        - Not consist only of special characters
+        - Start with a letter
+        - Contain at least one alphanumeric character
+        """
+        if not name:
+            return False
+            
+        # Must start with a letter
+        if not name[0].isalpha():
+            return False
+            
+        # Must contain at least one alphanumeric character
+        if not any(c.isalnum() for c in name):
+            return False
+            
+        return True
+    
     def _create_tool_from_operation(self, path: str, method: str, operation: Dict[str, Any]) -> Optional[OCPTool]:
         """Create OCP tool from OpenAPI operation"""
         
-        # Generate tool name
+        # Generate tool name with proper validation and fallback logic
         operation_id = operation.get('operationId')
+        tool_name = None
+        
+        # Try operationId first
         if operation_id:
-            tool_name = self._normalize_tool_name(operation_id)
-        else:
+            normalized_name = self._normalize_tool_name(operation_id)
+            if self._is_valid_tool_name(normalized_name):
+                tool_name = normalized_name
+        
+        # If operationId failed, try fallback naming
+        if not tool_name:
             # Generate name from path and method
             clean_path = path.replace('/', '_').replace('{', '').replace('}', '')
             fallback_name = f"{method.lower()}{clean_path}"
-            tool_name = self._normalize_tool_name(fallback_name)
+            normalized_fallback = self._normalize_tool_name(fallback_name)
+            if self._is_valid_tool_name(normalized_fallback):
+                tool_name = normalized_fallback
+        
+        # If we can't generate a valid tool name, skip this operation
+        if not tool_name:
+            logger.warning(f"Skipping operation {method} {path}: unable to generate valid tool name")
+            return None
         
         # Get description
         description = operation.get('summary', '') or operation.get('description', '')

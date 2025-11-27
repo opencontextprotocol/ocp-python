@@ -180,10 +180,10 @@ class TestOCPSchemaDiscovery:
                         "summary": "Single character test"
                     }
                 },
-                "/only-separators": {
+                "/no-operation-id": {
                     "get": {
-                        "operationId": "///",  # Only separators
-                        "summary": "Only separators test"
+                        # No operationId - should use fallback naming
+                        "summary": "Missing operationId test"
                     }
                 },
                 "/mixed-separators": {
@@ -315,13 +315,28 @@ class TestOCPSchemaDiscovery:
         assert discovery._normalize_tool_name("a") == "a"
         assert discovery._normalize_tool_name("A") == "a"
         
-        # Only separators should return original
+        # Only separators should return original (but will be caught by validation)
         assert discovery._normalize_tool_name("///") == "///"
         assert discovery._normalize_tool_name("___") == "___"
         
         # Single word
         assert discovery._normalize_tool_name("users") == "users"
         assert discovery._normalize_tool_name("USERS") == "users"
+    
+    def test_valid_tool_name_validation(self, discovery):
+        """Test tool name validation logic."""
+        # Valid names
+        assert discovery._is_valid_tool_name("metaRoot") == True
+        assert discovery._is_valid_tool_name("a") == True
+        assert discovery._is_valid_tool_name("test123") == True
+        assert discovery._is_valid_tool_name("getUserId") == True
+        
+        # Invalid names
+        assert discovery._is_valid_tool_name("") == False
+        assert discovery._is_valid_tool_name("///") == False
+        assert discovery._is_valid_tool_name("___") == False
+        assert discovery._is_valid_tool_name("123abc") == False  # Starts with number
+        assert discovery._is_valid_tool_name("!@#") == False     # Only special chars
     
     def test_operation_id_integration(self, discovery, openapi_spec_with_operation_ids):
         """Test that operationId normalization works in full tool generation flow."""
@@ -376,18 +391,20 @@ class TestOCPSchemaDiscovery:
         tools = api_spec.tools
         tool_names = [t.name for t in tools]
         
-        # Test edge case handling
-        expected_behaviors = [
-            # For empty operationId, should fall back to path-based naming
+        expected_tools = [
             "getEmptyOperationId",     # Empty operationId falls back to path
-            "a",                       # Single character preserved
-            "///",                     # Only separators preserved as-is
+            "a",                       # Single character preserved (valid)
+            "getNoOperationId",        # Missing operationId uses path-based naming
             "apiV1UsersListAll",       # Mixed separators normalized
             "getApiHttpUrl"            # Multiple acronyms preserved
         ]
         
-        for expected_name in expected_behaviors:
+        # Check expected tools are present
+        for expected_name in expected_tools:
             assert expected_name in tool_names, f"Expected tool name '{expected_name}' not found in {tool_names}"
+            
+        # Verify total tool count - all 5 operations should create valid tools
+        assert len(tools) == 5, f"Expected 5 tools, got {len(tools)}: {tool_names}"
     
     @patch('requests.get')
     def test_discover_api_success(self, mock_get, discovery, sample_openapi_spec):
