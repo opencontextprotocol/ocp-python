@@ -14,6 +14,14 @@ from .schema_discovery import OCPAPISpec, OCPTool
 from .errors import RegistryUnavailable, APINotFound
 
 
+# Configuration constants
+DEFAULT_TIMEOUT = 10
+SEARCH_TIMEOUT = 5
+DEFAULT_PER_PAGE = 10
+MAX_SUGGESTIONS = 3
+DEFAULT_API_VERSION = '1.0.0'
+
+
 class OCPRegistry:
     """
     Registry client for pre-discovered API specifications.
@@ -58,7 +66,7 @@ class OCPRegistry:
             # Get API entry from registry
             response = requests.get(
                 urljoin(self.registry_url, f'/api/v1/registry/{name}'),
-                timeout=10
+                timeout=DEFAULT_TIMEOUT
             )
             
             if response.status_code == 404:
@@ -88,8 +96,8 @@ class OCPRegistry:
         try:
             response = requests.get(
                 urljoin(self.registry_url, '/api/v1/search'),
-                params={'q': query, 'per_page': 10},
-                timeout=5
+                params={'q': query, 'per_page': DEFAULT_PER_PAGE},
+                timeout=SEARCH_TIMEOUT
             )
             response.raise_for_status()
             
@@ -110,7 +118,7 @@ class OCPRegistry:
         try:
             response = requests.get(
                 urljoin(self.registry_url, '/api/v1/registry'),
-                timeout=10
+                timeout=DEFAULT_TIMEOUT
             )
             response.raise_for_status()
             
@@ -146,7 +154,7 @@ class OCPRegistry:
         return OCPAPISpec(
             base_url=base_url,
             title=api_entry.get('display_name', api_entry['name']),
-            version='1.0.0',  # Registry doesn't store version
+            version=DEFAULT_API_VERSION,  # Registry doesn't store version
             description=api_entry.get('description', ''),
             tools=tools,
             raw_spec=api_entry  # Store the original registry entry
@@ -161,4 +169,4 @@ class OCPRegistry:
         if not suggestions and len(api_name) > 2:
             suggestions = self.search_apis(api_name[:3])
         
-        return suggestions[:3]  # Limit to 3 suggestions
+        return suggestions[:MAX_SUGGESTIONS]  # Limit to 3 suggestions
