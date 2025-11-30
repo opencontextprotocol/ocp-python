@@ -5,20 +5,18 @@ Validates agent contexts against the OCP specification schemas.
 """
 
 import json
-import os
 from typing import Dict, Any, Optional, List
-from pathlib import Path
+from importlib import resources
 
-from jsonschema import validate, ValidationError, Draft7Validator
+from jsonschema import validate, ValidationError
 
 from .context import AgentContext
 
 
 def _load_schema() -> Dict[str, Any]:
     """Load OCP context schema from braided specification file."""
-    schema_path = Path(__file__).parent / "schemas" / "ocp-context.json"
-    with open(schema_path, 'r') as f:
-        return json.load(f)
+    schema_data = resources.files(__package__).joinpath("schemas/ocp-context.json").read_text()
+    return json.loads(schema_data)
 
 
 # Load schema from braided specification repo
