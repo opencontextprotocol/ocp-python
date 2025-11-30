@@ -7,6 +7,7 @@ Handles encoding/decoding agent context into HTTP headers and validation.
 import json
 import base64
 import gzip
+import binascii
 from typing import Dict, Any, Optional, Union
 from dataclasses import dataclass
 
@@ -24,6 +25,9 @@ OCP_VERSION = "OCP-Version"
 
 # Current OCP specification version
 OCP_SPEC_VERSION = "1.0"
+
+# Compression threshold for session data
+COMPRESSION_THRESHOLD = 1000
 
 
 @dataclass
@@ -64,7 +68,7 @@ class OCPHeaders:
         session_data = context.to_dict()
         session_json = json.dumps(session_data, separators=(',', ':'))
         
-        if compress and len(session_json) > 1000:
+        if compress and len(session_json) > COMPRESSION_THRESHOLD:
             # Compress large session data
             compressed = gzip.compress(session_json.encode('utf-8'))
             encoded = base64.b64encode(compressed).decode('ascii')
@@ -111,7 +115,7 @@ class OCPHeaders:
             context_data = json.loads(session_json)
             return AgentContext.from_dict(context_data)
             
-        except (json.JSONDecodeError, base64.binascii.Error, gzip.BadGzipFile, UnicodeDecodeError):
+        except (json.JSONDecodeError, binascii.Error, gzip.BadGzipFile, UnicodeDecodeError):
             return None
     
     @staticmethod
