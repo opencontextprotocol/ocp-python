@@ -6,15 +6,22 @@ enabling context-aware API interactions with zero infrastructure requirements.
 """
 
 import json
+import re
 import requests
 import logging
-from typing import Dict, List, Any, Optional, Union
+from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from urllib.parse import urljoin
 
 from .errors import SchemaDiscoveryError
 
 logger = logging.getLogger(__name__)
+
+# Configuration constants
+DEFAULT_SPEC_TIMEOUT = 30
+DEFAULT_API_TITLE = 'Unknown API'
+DEFAULT_API_VERSION = '1.0.0'
+SUPPORTED_HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete']
 
 @dataclass
 class OCPTool:
@@ -76,7 +83,7 @@ class OCPSchemaDiscovery:
     def _fetch_spec(self, spec_url: str) -> Dict[str, Any]:
         """Fetch OpenAPI specification from URL"""
         try:
-            response = requests.get(spec_url, timeout=30)
+            response = requests.get(spec_url, timeout=DEFAULT_SPEC_TIMEOUT)
             response.raise_for_status()
             return response.json()
         except Exception as e:
@@ -87,8 +94,8 @@ class OCPSchemaDiscovery:
         
         # Extract basic info
         info = spec_data.get('info', {})
-        title = info.get('title', 'Unknown API')
-        version = info.get('version', '1.0.0')
+        title = info.get('title', DEFAULT_API_TITLE)
+        version = info.get('version', DEFAULT_API_VERSION)
         description = info.get('description', '')
         
         # Determine base URL
@@ -106,7 +113,7 @@ class OCPSchemaDiscovery:
         
         for path, path_item in paths.items():
             for method, operation in path_item.items():
-                if method.lower() in ['get', 'post', 'put', 'patch', 'delete']:
+                if method.lower() in SUPPORTED_HTTP_METHODS:
                     tool = self._create_tool_from_operation(
                         path, method.upper(), operation
                     )
@@ -134,8 +141,6 @@ class OCPSchemaDiscovery:
         - 'get_users_list' → 'getUsersList'
         - 'SMS/send' → 'smsSend'
         """
-        import re
-        
         # Handle empty or None names
         if not name:
             return name
