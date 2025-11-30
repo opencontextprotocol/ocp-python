@@ -117,7 +117,15 @@ OCP_CONTEXT_SCHEMA = {
 
 
 class ValidationResult:
-    """Result of schema validation."""
+    """Result of schema validation.
+    
+    Provides validation status and error details for OCP context validation.
+    Supports boolean conversion for simple valid/invalid checks.
+    
+    Attributes:
+        valid: True if validation passed, False otherwise
+        errors: List of validation error messages
+    """
     
     def __init__(self, valid: bool, errors: Optional[List[str]] = None):
         self.valid = valid
@@ -154,14 +162,13 @@ def validate_context(context: AgentContext) -> ValidationResult:
 
 
 def validate_context_dict(context_dict: Dict[str, Any]) -> ValidationResult:
-    """
-    Validate a context dictionary against the OCP schema.
+    """Validate a context dictionary against the OCP schema.
     
     Args:
-        context_dict: Context data as dictionary
+        context_dict: Context data as dictionary to validate
         
     Returns:
-        ValidationResult with validation status and errors
+        ValidationResult with validation status and any error messages
     """
     try:
         validate(context_dict, OCP_CONTEXT_SCHEMA)
@@ -176,24 +183,35 @@ def validate_context_dict(context_dict: Dict[str, Any]) -> ValidationResult:
 
 
 def get_schema() -> Dict[str, Any]:
-    """
-    Get the OCP context JSON schema.
+    """Get the OCP context JSON schema.
     
     Returns:
-        JSON schema dictionary
+        Copy of the JSON schema dictionary used for validation
+        
+    Note:
+        Returns a copy to prevent accidental modification of the schema.
     """
     return OCP_CONTEXT_SCHEMA.copy()
 
 
 def validate_and_fix_context(context: AgentContext) -> tuple[AgentContext, ValidationResult]:
-    """
-    Validate context and attempt to fix common issues.
+    """Validate context and attempt to fix common issues.
+    
+    Attempts to automatically repair common validation failures:
+    - Adds 'ocp-' prefix to context_id if missing
+    - Ensures required collections (session, history, api_specs) exist
+    - Initializes collections as empty if they are None or wrong type
     
     Args:
-        context: AgentContext to validate and fix
+        context: AgentContext to validate and potentially fix
         
     Returns:
-        Tuple of (possibly_fixed_context, validation_result)
+        Tuple of (fixed_context, validation_result)
+        - fixed_context: New AgentContext with repairs applied
+        - validation_result: Final validation status after fixes
+        
+    Note:
+        Original context is not modified; returns a new instance.
     """
     # Make a copy to avoid modifying original
     fixed_context = AgentContext.from_dict(context.to_dict())

@@ -59,7 +59,12 @@ class AgentContext:
             }
     
     def update_goal(self, goal: str, summary: Optional[str] = None) -> None:
-        """Update the agent's current goal and context summary."""
+        """Update the agent's current goal and context summary.
+        
+        Args:
+            goal: The new goal for the agent to pursue
+            summary: Optional context summary providing additional details
+        """
         self.current_goal = goal
         if summary:
             self.context_summary = summary
@@ -73,7 +78,14 @@ class AgentContext:
         result: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None
     ) -> None:
-        """Add an interaction to the conversation history."""
+        """Add an interaction to the conversation history.
+        
+        Args:
+            action: Description of the action performed
+            api_endpoint: API endpoint called, if applicable
+            result: Result or outcome of the action
+            metadata: Additional context data for the interaction
+        """
         interaction = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "action": action,
@@ -85,14 +97,26 @@ class AgentContext:
         self.last_updated = datetime.now(timezone.utc)
     
     def set_error_context(self, error: str, file_path: Optional[str] = None) -> None:
-        """Set error context for debugging scenarios."""
+        """Set error context for debugging scenarios.
+        
+        Args:
+            error: Description of the error encountered
+            file_path: Optional file path where the error occurred
+        """
         self.error_context = error
         if file_path:
             self.current_file = file_path
         self.last_updated = datetime.now(timezone.utc)
     
     def add_recent_change(self, change: str) -> None:
-        """Add a recent change to track modifications."""
+        """Add a recent change to track modifications.
+        
+        Args:
+            change: Description of the change made
+            
+        Note:
+            Maintains only the last 10 changes to prevent unbounded growth.
+        """
         self.recent_changes.append(change)
         # Keep only last 10 changes
         if len(self.recent_changes) > 10:
@@ -100,12 +124,21 @@ class AgentContext:
         self.last_updated = datetime.now(timezone.utc)
     
     def add_api_spec(self, api_name: str, openapi_url: str) -> None:
-        """Add an API specification for enhanced responses."""
+        """Add an API specification for enhanced responses.
+        
+        Args:
+            api_name: Identifier for the API
+            openapi_url: URL to the OpenAPI specification
+        """
         self.api_specs[api_name] = openapi_url
         self.last_updated = datetime.now(timezone.utc)
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convert context to dictionary for serialization."""
+        """Convert context to dictionary for serialization.
+        
+        Returns:
+            Dictionary representation with datetime objects converted to ISO strings
+        """
         data = asdict(self)
         # Convert datetime objects to ISO strings
         data["created_at"] = self.created_at.isoformat()
@@ -114,7 +147,14 @@ class AgentContext:
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AgentContext":
-        """Create AgentContext from dictionary."""
+        """Create AgentContext from dictionary.
+        
+        Args:
+            data: Dictionary with context data, ISO datetime strings will be converted
+            
+        Returns:
+            New AgentContext instance
+        """
         # Convert ISO strings back to datetime objects
         if "created_at" in data and isinstance(data["created_at"], str):
             data["created_at"] = datetime.fromisoformat(data["created_at"].replace("Z", "+00:00"))
@@ -124,7 +164,11 @@ class AgentContext:
         return cls(**data)
     
     def get_conversation_summary(self) -> str:
-        """Get a summary of the conversation for API context."""
+        """Get a summary of the conversation for API context.
+        
+        Returns:
+            Formatted string summarizing current goal, errors, files, and recent activity
+        """
         summary_parts = []
         
         if self.current_goal:
@@ -146,7 +190,11 @@ class AgentContext:
         return " | ".join(summary_parts) if summary_parts else "New conversation"
     
     def clone(self) -> "AgentContext":
-        """Create a copy of this context for forked workflows."""
+        """Create a copy of this context for forked workflows.
+        
+        Returns:
+            New AgentContext with same data but different context_id
+        """
         data = self.to_dict()
         data["context_id"] = f"ocp-{uuid.uuid4().hex[:8]}"  # New ID for clone
         return self.from_dict(data)
@@ -166,11 +214,10 @@ class AgentContext:
         return create_ocp_headers(self, compress=compress)
     
     def update_from_headers(self, headers: Dict[str, str]) -> bool:
-        """
-        Convenience method to update context from HTTP response headers.
+        """Update context from HTTP response headers.
         
         Args:
-            headers: HTTP headers dictionary
+            headers: HTTP headers dictionary from API response
             
         Returns:
             True if context was updated, False if no OCP headers found

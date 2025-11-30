@@ -14,7 +14,12 @@ class OCPError(Exception):
 
 
 class RegistryUnavailable(OCPError):
-    """Registry service is unreachable or returned an error."""
+    """Registry service is unreachable or returned an error.
+    
+    Args:
+        registry_url: The URL of the unreachable registry
+        message: Optional specific error message
+    """
     
     def __init__(self, registry_url: str, message: str = None):
         self.registry_url = registry_url
@@ -26,7 +31,12 @@ class RegistryUnavailable(OCPError):
 
 
 class APINotFound(OCPError):
-    """API not found in the registry."""
+    """API not found in the registry.
+    
+    Args:
+        api_name: The name of the API that was not found
+        suggestions: Optional list of similar API names to suggest
+    """
     
     def __init__(self, api_name: str, suggestions: Optional[List[str]] = None):
         self.api_name = api_name
@@ -39,10 +49,18 @@ class APINotFound(OCPError):
 
 
 class SchemaDiscoveryError(OCPError):
-    """OpenAPI schema discovery and parsing errors."""
+    """OpenAPI schema discovery and parsing errors.
+    
+    Raised when there are issues fetching, parsing, or processing OpenAPI specifications.
+    This includes network errors, malformed JSON/YAML, and invalid schema structures.
+    """
     pass
 
 
 class ValidationError(OCPError):
-    """Context or parameter validation errors."""
+    """Context or parameter validation errors.
+    
+    Raised when agent context, API parameters, or response data fails validation.
+    This includes missing required fields, type mismatches, and constraint violations.
+    """
     pass
