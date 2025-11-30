@@ -31,9 +31,9 @@ class OCPTool:
     method: str
     path: str
     parameters: Dict[str, Any]
-    response_schema: Dict[str, Any]
+    response_schema: Optional[Dict[str, Any]]
     operation_id: Optional[str] = None
-    tags: List[str] = None
+    tags: Optional[List[str]] = None
 
 @dataclass 
 class OCPAPISpec:
@@ -71,14 +71,19 @@ class OCPSchemaDiscovery:
         if spec_url in self.cached_specs:
             return self.cached_specs[spec_url]
         
-        # Fetch and parse OpenAPI spec
-        spec_data = self._fetch_spec(spec_url)
-        parsed_spec = self._parse_openapi_spec(spec_data, base_url)
-        
-        # Cache for future use
-        self.cached_specs[spec_url] = parsed_spec
-        
-        return parsed_spec
+        try:
+            # Fetch and parse OpenAPI spec
+            spec_data = self._fetch_spec(spec_url)
+            parsed_spec = self._parse_openapi_spec(spec_data, base_url)
+            
+            # Cache for future use
+            self.cached_specs[spec_url] = parsed_spec
+            
+            return parsed_spec
+        except Exception as e:
+            if isinstance(e, SchemaDiscoveryError):
+                raise
+            raise SchemaDiscoveryError(f"Failed to discover API: {e}")
     
     def _fetch_spec(self, spec_url: str) -> Dict[str, Any]:
         """Fetch OpenAPI specification from URL"""
@@ -303,10 +308,8 @@ class OCPSchemaDiscovery:
         
         return parameters
     
-    def _parse_responses(self, responses: Dict[str, Any]) -> Dict[str, Any]:
+    def _parse_responses(self, responses: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Parse response schemas"""
-        response_schema = {}
-        
         # Look for successful response (200, 201, etc.)
         for status_code, response in responses.items():
             if str(status_code).startswith('2'):  # 2xx success codes
@@ -314,10 +317,9 @@ class OCPSchemaDiscovery:
                 json_content = content.get('application/json', {})
                 
                 if json_content and 'schema' in json_content:
-                    response_schema = json_content['schema']
-                    break
+                    return json_content['schema']
         
-        return response_schema
+        return None
     
     def get_tools_by_tag(self, api_spec: OCPAPISpec, tag: str) -> List[OCPTool]:
         """Get tools filtered by tag"""

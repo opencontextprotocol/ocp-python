@@ -40,7 +40,27 @@ class TestOCPSchemaDiscovery:
                                 "schema": {"type": "integer"},
                                 "required": False
                             }
-                        ]
+                        ],
+                        "responses": {
+                            "200": {
+                                "description": "List of users",
+                                "content": {
+                                    "application/json": {
+                                        "schema": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "id": {"type": "integer"},
+                                                    "name": {"type": "string"},
+                                                    "email": {"type": "string"}
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     },
                     "post": {
                         "summary": "Create user",
@@ -241,6 +261,8 @@ class TestOCPSchemaDiscovery:
         assert get_users.parameters["limit"]["type"] == "integer"
         assert get_users.parameters["limit"]["location"] == "query"
         assert not get_users.parameters["limit"]["required"]
+        assert get_users.response_schema is not None
+        assert get_users.response_schema["type"] == "array"
         
         # Check POST /users tool
         post_users = next((t for t in tools if t.name == "postUsers"), None)
@@ -251,6 +273,7 @@ class TestOCPSchemaDiscovery:
         assert "email" in post_users.parameters
         assert post_users.parameters["name"]["required"]
         assert post_users.parameters["email"]["required"]
+        assert post_users.response_schema is None
         
         # Check GET /users/{id} tool
         get_users_id = next((t for t in tools if t.name == "getUsersId"), None)
@@ -260,6 +283,7 @@ class TestOCPSchemaDiscovery:
         assert "id" in get_users_id.parameters
         assert get_users_id.parameters["id"]["location"] == "path"
         assert get_users_id.parameters["id"]["required"]
+        assert get_users_id.response_schema is None
     
     def test_normalize_tool_name_slash_separators(self, discovery):
         """Test normalization of operationId with slash separators."""
@@ -457,7 +481,7 @@ class TestOCPSchemaDiscovery:
                 method="GET",
                 path="/users",
                 parameters={},
-                response_schema={}
+                response_schema=None
             ),
             OCPTool(
                 name="create_user",
@@ -465,7 +489,7 @@ class TestOCPSchemaDiscovery:
                 method="POST",
                 path="/users",
                 parameters={},
-                response_schema={}
+                response_schema=None
             ),
             OCPTool(
                 name="list_orders",
@@ -473,7 +497,7 @@ class TestOCPSchemaDiscovery:
                 method="GET",
                 path="/orders",
                 parameters={},
-                response_schema={}
+                response_schema=None
             )
         ]
         
@@ -528,7 +552,7 @@ class TestOCPSchemaDiscovery:
                     "location": "body"
                 }
             },
-            response_schema={}
+            response_schema=None
         )
         
         doc = discovery.generate_tool_documentation(tool)
@@ -555,7 +579,7 @@ class TestOCPTool:
             method="GET",
             path="/test",
             parameters={"param": {"type": "string"}},
-            response_schema={}
+            response_schema=None
         )
         
         assert tool.name == "test_tool"
@@ -571,8 +595,8 @@ class TestOCPAPISpec:
     def test_api_spec_creation(self):
         """Test creating an OCPAPISpec instance."""
         tools = [
-            OCPTool("tool1", "Description 1", "GET", "/path1", {}, {}),
-            OCPTool("tool2", "Description 2", "POST", "/path2", {}, {})
+            OCPTool("tool1", "Description 1", "GET", "/path1", {}, None),
+            OCPTool("tool2", "Description 2", "POST", "/path2", {}, None)
         ]
         
         api_spec = OCPAPISpec(
