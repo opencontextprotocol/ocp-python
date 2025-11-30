@@ -61,6 +61,9 @@ class OCPHeaders:
         if context.current_goal:
             headers[OCP_CURRENT_GOAL] = context.current_goal
         
+        if context.user:
+            headers[OCP_USER] = context.user
+        
         if context.workspace:
             headers[OCP_WORKSPACE] = context.workspace
         

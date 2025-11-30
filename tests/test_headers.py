@@ -14,6 +14,7 @@ from ocp_agent.headers import (
     OCP_SESSION,
     OCP_AGENT_TYPE,
     OCP_CURRENT_GOAL,
+    OCP_USER,
     OCP_WORKSPACE,
     OCP_VERSION
 )
@@ -49,6 +50,10 @@ class TestOCPHeadersEncoding:
         if sample_context.current_goal:
             assert OCP_CURRENT_GOAL in headers
             assert headers[OCP_CURRENT_GOAL] == sample_context.current_goal
+        
+        if sample_context.user:
+            assert OCP_USER in headers
+            assert headers[OCP_USER] == sample_context.user
         
         if sample_context.workspace:
             assert OCP_WORKSPACE in headers
