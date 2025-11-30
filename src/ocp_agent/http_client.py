@@ -5,8 +5,8 @@ Provides a simple HTTP client that automatically adds OCP context
 headers to all requests.
 """
 
-import functools
-from typing import Dict, Any, Optional, Union, Callable
+import requests
+from typing import Dict, Any, Optional
 from urllib.parse import urlparse
 
 from .context import AgentContext
@@ -24,7 +24,8 @@ class OCPHTTPClient:
     def __init__(
         self, 
         context: AgentContext,
-        auto_update_context: bool = True
+        auto_update_context: bool = True,
+        base_url: Optional[str] = None
     ):
         """
         Initialize OCP HTTP client.
@@ -32,12 +33,13 @@ class OCPHTTPClient:
         Args:
             context: Agent context to include in requests
             auto_update_context: Whether to automatically update context with interactions
+            base_url: Optional base URL for API requests
         """
         self.context = context
         self.auto_update_context = auto_update_context
+        self.base_url = base_url.rstrip('/') if base_url else None
         
         # Use requests as our HTTP client
-        import requests
         self.http_client = requests.Session()
     
     def _prepare_headers(self, headers: Optional[Dict[str, str]] = None) -> Dict[str, str]:
@@ -78,6 +80,10 @@ class OCPHTTPClient:
     
     def request(self, method: str, url: str, **kwargs) -> Any:
         """Make an HTTP request with OCP context."""
+        # Handle base URL for relative URLs
+        if self.base_url and not url.startswith('http'):
+            url = f"{self.base_url}{url}"
+        
         # Prepare headers
         headers = kwargs.get('headers', {})
         kwargs['headers'] = self._prepare_headers(headers)
@@ -138,29 +144,11 @@ def wrap_api(
         ... )
         >>> issues = github.get("/search/issues", params={"q": "bug"})
     """
-    # Set up base headers
-    base_headers = headers.copy() if headers else {}
+    # Create OCP client with base URL
+    ocp_client = OCPHTTPClient(context, base_url=base_url)
     
-    # Create HTTP client with base URL
-    import requests
-    session = requests.Session()
-    session.headers.update(base_headers)
-    
-    # Create OCP client
-    ocp_client = OCPHTTPClient(context)
-    ocp_client.http_client = session
-    
-    # Store base URL for convenience
-    ocp_client.base_url = base_url.rstrip('/')
-    
-    # Override methods to handle relative URLs
-    original_request = ocp_client.request
-    
-    def request_with_base_url(method: str, url: str, **kwargs):
-        if not url.startswith('http'):
-            url = f"{ocp_client.base_url}{url}"
-        return original_request(method, url, **kwargs)
-    
-    ocp_client.request = request_with_base_url
+    # Set up additional headers if provided
+    if headers:
+        ocp_client.http_client.headers.update(headers)
     
     return ocp_client
