@@ -14,106 +14,15 @@ from jsonschema import validate, ValidationError, Draft7Validator
 from .context import AgentContext
 
 
-# OCP Context Schema (embedded for now, could be loaded from files)
-OCP_CONTEXT_SCHEMA = {
-    "$schema": "http://json-schema.org/draft-07/schema#",
-    "$id": "https://opencontextprotocol.org/schemas/ocp-context.json",
-    "title": "OCP Context Object",
-    "description": "Agent context for Open Context Protocol",
-    "type": "object",
-    "properties": {
-        "context_id": {
-            "type": "string",
-            "pattern": "^ocp-[a-f0-9]{8,}$",
-            "description": "Unique identifier for this context"
-        },
-        "agent_type": {
-            "type": "string",
-            "description": "Type of agent creating this context"
-        },
-        "user": {
-            "type": ["string", "null"],
-            "description": "User identifier"
-        },
-        "workspace": {
-            "type": ["string", "null"],
-            "description": "Current workspace or project"
-        },
-        "current_file": {
-            "type": ["string", "null"],
-            "description": "Currently active file"
-        },
-        "session": {
-            "type": "object",
-            "properties": {
-                "start_time": {"type": "string", "format": "date-time"},
-                "interaction_count": {"type": "integer", "minimum": 0},
-                "agent_type": {"type": "string"}
-            },
-            "additionalProperties": True
-        },
-        "history": {
-            "type": "array",
-            "items": {
-                "type": "object", 
-                "properties": {
-                    "timestamp": {"type": "string", "format": "date-time"},
-                    "action": {"type": "string"},
-                    "api_endpoint": {"type": ["string", "null"]},
-                    "result": {"type": ["string", "null"]},
-                    "metadata": {"type": "object"}
-                },
-                "required": ["timestamp", "action"]
-            }
-        },
-        "current_goal": {
-            "type": ["string", "null"],
-            "description": "Agent's current objective"
-        },
-        "context_summary": {
-            "type": ["string", "null"],
-            "description": "Brief summary of conversation context"
-        },
-        "error_context": {
-            "type": ["string", "null"],
-            "description": "Error information for debugging"
-        },
-        "recent_changes": {
-            "type": "array",
-            "items": {"type": "string"},
-            "maxItems": 20,
-            "description": "Recent changes or modifications"
-        },
-        "api_specs": {
-            "type": "object",
-            "patternProperties": {
-                "^[a-zA-Z0-9_-]+$": {
-                    "type": "string",
-                    "format": "uri"
-                }
-            },
-            "description": "API specifications for enhanced responses"
-        },
-        "created_at": {
-            "type": "string",
-            "format": "date-time"
-        },
-        "last_updated": {
-            "type": "string", 
-            "format": "date-time"
-        }
-    },
-    "required": [
-        "context_id",
-        "agent_type", 
-        "session",
-        "history",
-        "api_specs",
-        "created_at",
-        "last_updated"
-    ],
-    "additionalProperties": False
-}
+def _load_schema() -> Dict[str, Any]:
+    """Load OCP context schema from braided specification file."""
+    schema_path = Path(__file__).parent / "schemas" / "ocp-context.json"
+    with open(schema_path, 'r') as f:
+        return json.load(f)
+
+
+# Load schema from braided specification repo
+OCP_CONTEXT_SCHEMA = _load_schema()
 
 
 class ValidationResult:
