@@ -123,6 +123,10 @@ class OCPStorage:
                 ]
             }
             
+            # Add description if present
+            if spec.description:
+                cache_data["description"] = spec.description
+            
             if metadata:
                 cache_data.update(metadata)
             
@@ -218,9 +222,10 @@ class OCPStorage:
                 try:
                     cache_data = self._read_json_file(cache_file)
                     
-                    # Search in name, title, and tool descriptions
+                    # Search in name, title, description, and tool descriptions
                     if (query_lower in cache_data.get("api_name", "").lower() or
                         query_lower in cache_data.get("title", "").lower() or
+                        query_lower in cache_data.get("description", "").lower() or
                         any(query_lower in tool.get("description", "").lower() 
                             for tool in cache_data.get("tools", []))):
                         
