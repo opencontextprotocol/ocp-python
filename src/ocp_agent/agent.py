@@ -6,14 +6,20 @@ providing intelligent API interactions with zero infrastructure.
 """
 
 import requests
-from typing import Dict, List, Any, Optional
-from dataclasses import dataclass
+from typing import Dict, List, Any, Optional, Tuple
 
 from .context import AgentContext
 from .schema_discovery import OCPSchemaDiscovery, OCPAPISpec, OCPTool
 from .http_client import OCPHTTPClient
 from .registry import OCPRegistry
 from .storage import OCPStorage
+
+# Configuration constants
+DEFAULT_AGENT_TYPE = "ai_agent"
+DEFAULT_CACHE_MAX_AGE_DAYS = 7
+DEFAULT_REQUEST_TIMEOUT = 30
+CACHE_SOURCE_NAME = "cache"
+REGISTRY_SOURCE_PREFIX = "registry"
 
 
 class OCPAgent:
@@ -29,7 +35,7 @@ class OCPAgent:
     """
     
     def __init__(self, 
-                 agent_type: str = "ai_agent",
+                 agent_type: str = DEFAULT_AGENT_TYPE,
                  user: Optional[str] = None,
                  workspace: Optional[str] = None,
                  agent_goal: Optional[str] = None,
@@ -85,10 +91,10 @@ class OCPAgent:
         
         # 2. Check local cache (if enabled)
         if self.storage:
-            cached_spec = self.storage.get_cached_api(name, max_age_days=7)
+            cached_spec = self.storage.get_cached_api(name, max_age_days=DEFAULT_CACHE_MAX_AGE_DAYS)
             if cached_spec:
                 self.known_apis[name] = cached_spec
-                self.context.add_api_spec(name, "cache")
+                self.context.add_api_spec(name, CACHE_SOURCE_NAME)
                 return cached_spec
         
         # 3. Fetch from registry or OpenAPI spec
@@ -99,7 +105,7 @@ class OCPAgent:
         else:
             # Registry lookup
             api_spec = self.registry.get_api_spec(name, base_url)
-            source = f"registry:{name}"
+            source = f"{REGISTRY_SOURCE_PREFIX}:{name}"
         
         # Store API spec in memory
         self.known_apis[name] = api_spec
@@ -299,7 +305,7 @@ class OCPAgent:
         return errors
     
     def _build_request(self, api_spec: OCPAPISpec, tool: OCPTool, 
-                      parameters: Dict[str, Any]) -> tuple[str, Dict[str, Any]]:
+                      parameters: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
         """Build HTTP request from tool and parameters."""
         
         # Start with base URL and path
@@ -341,7 +347,7 @@ class OCPAgent:
             request_params['headers'] = header_params
         
         # Set timeout
-        request_params['timeout'] = 30
+        request_params['timeout'] = DEFAULT_REQUEST_TIMEOUT
         
         return url, request_params
     
