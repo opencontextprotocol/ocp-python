@@ -12,7 +12,13 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone, timedelta
 
 from .context import AgentContext
-from .schema_discovery import OCPAPISpec
+from .schema_discovery import OCPAPISpec, OCPTool
+
+# Configuration constants
+DEFAULT_CACHE_SOURCE = "unknown"
+DEFAULT_SESSION_KEEP_COUNT = 50
+JSON_INDENT = 2
+FILE_ENCODING = 'utf-8'
 
 
 class OCPStorage:
@@ -53,6 +59,16 @@ class OCPStorage:
         
         self._ensure_dirs()
     
+    def _write_json_file(self, file_path: Path, data: Dict[str, Any]) -> None:
+        """Helper method to write JSON data to file with consistent formatting."""
+        with open(file_path, 'w', encoding=FILE_ENCODING) as f:
+            json.dump(data, f, indent=JSON_INDENT, ensure_ascii=False)
+    
+    def _read_json_file(self, file_path: Path) -> Dict[str, Any]:
+        """Helper method to read JSON data from file."""
+        with open(file_path, 'r', encoding=FILE_ENCODING) as f:
+            return json.load(f)
+    
     def _ensure_dirs(self) -> None:
         """Create storage directories if they don't exist."""
         try:
@@ -90,7 +106,7 @@ class OCPStorage:
                 "version": spec.version,
                 "base_url": spec.base_url,
                 "cached_at": datetime.now(timezone.utc).isoformat(),
-                "source": metadata.get("source", "unknown") if metadata else "unknown",
+                "source": metadata.get("source", DEFAULT_CACHE_SOURCE) if metadata else DEFAULT_CACHE_SOURCE,
                 "raw_spec": spec.raw_spec,
                 "tools": [
                     {
@@ -110,8 +126,7 @@ class OCPStorage:
             if metadata:
                 cache_data.update(metadata)
             
-            with open(cache_file, 'w', encoding='utf-8') as f:
-                json.dump(cache_data, f, indent=2, ensure_ascii=False)
+            self._write_json_file(cache_file, cache_data)
             
             return True
             
@@ -140,8 +155,7 @@ class OCPStorage:
             if not cache_file.exists():
                 return None
             
-            with open(cache_file, 'r', encoding='utf-8') as f:
-                cache_data = json.load(f)
+            cache_data = self._read_json_file(cache_file)
             
             # Check expiration if max_age_days is set
             if max_age_days is not None:
@@ -154,9 +168,6 @@ class OCPStorage:
                     return None  # Expired
             
             # Reconstruct OCPAPISpec from cache
-            # Import here to avoid circular dependency
-            from .schema_discovery import OCPTool
-            
             tools = [
                 OCPTool(
                     name=t["name"],
@@ -205,8 +216,7 @@ class OCPStorage:
             
             for cache_file in self.cache_dir.glob("*.json"):
                 try:
-                    with open(cache_file, 'r', encoding='utf-8') as f:
-                        cache_data = json.load(f)
+                    cache_data = self._read_json_file(cache_file)
                     
                     # Search in name, title, and tool descriptions
                     if (query_lower in cache_data.get("api_name", "").lower() or
@@ -293,8 +303,7 @@ class OCPStorage:
             session_data = context.to_dict()
             session_data["session_id"] = session_id
             
-            with open(session_file, 'w', encoding='utf-8') as f:
-                json.dump(session_data, f, indent=2, ensure_ascii=False)
+            self._write_json_file(session_file, session_data)
             
             return True
             
@@ -318,8 +327,7 @@ class OCPStorage:
             if not session_file.exists():
                 return None
             
-            with open(session_file, 'r', encoding='utf-8') as f:
-                session_data = json.load(f)
+            session_data = self._read_json_file(session_file)
             
             # Remove session_id from data (not part of AgentContext)
             session_data.pop("session_id", None)
@@ -361,8 +369,7 @@ class OCPStorage:
             
             for session_file in session_files:
                 try:
-                    with open(session_file, 'r', encoding='utf-8') as f:
-                        session_data = json.load(f)
+                    session_data = self._read_json_file(session_file)
                     
                     sessions.append({
                         "id": session_data.get("session_id", session_file.stem),
@@ -383,7 +390,7 @@ class OCPStorage:
         
         return sessions
     
-    def cleanup_sessions(self, keep_recent: int = 50) -> int:
+    def cleanup_sessions(self, keep_recent: int = DEFAULT_SESSION_KEEP_COUNT) -> int:
         """
         Remove old sessions, keeping N most recent.
         
