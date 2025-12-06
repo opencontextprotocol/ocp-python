@@ -54,7 +54,7 @@ class OCPHTTPClient:
         
         return ocp_headers
     
-    def _log_interaction(self, method: str, url: str, response: Any = None) -> None:
+    def _log_interaction(self, method: str, url: str, response: Any = None, error: Exception = None) -> None:
         """Log the API interaction in context."""
         if not self.auto_update_context:
             return
@@ -63,19 +63,40 @@ class OCPHTTPClient:
         parsed = urlparse(url)
         endpoint = f"{method.upper()} {parsed.path}"
         
-        # Get response status if available
-        result = None
+        # Get response status and build result
+        status_code = None
         if response and hasattr(response, 'status_code'):
-            result = f"HTTP {response.status_code}"
+            status_code = response.status_code
         elif response and hasattr(response, 'status'):
-            result = f"HTTP {response.status}"
+            status_code = response.status
+            
+        # Determine result string
+        result = None
+        if error:
+            result = f"Error: {str(error)}"
+        elif status_code:
+            result = f"HTTP {status_code}"
+        
+        # Build detailed metadata like JavaScript implementation
+        metadata = {
+            "method": method.upper(),
+            "url": url,
+            "domain": parsed.netloc,
+            "success": not error and status_code and 200 <= status_code < 300,
+        }
+        
+        if status_code:
+            metadata["status_code"] = status_code
+            
+        if error:
+            metadata["error"] = str(error)
         
         # Add to context history
         self.context.add_interaction(
             action=f"api_call_{method.lower()}",
             api_endpoint=endpoint,
             result=result,
-            metadata={"url": url, "domain": parsed.netloc}
+            metadata=metadata
         )
     
     def request(self, method: str, url: str, **kwargs) -> Any:
@@ -88,13 +109,21 @@ class OCPHTTPClient:
         headers = kwargs.get('headers', {})
         kwargs['headers'] = self._prepare_headers(headers)
         
-        # Make request
-        response = self.http_client.request(method, url, **kwargs)
-        
-        # Log interaction
-        self._log_interaction(method, url, response)
-        
-        return response
+        try:
+            # Make request
+            response = self.http_client.request(method, url, **kwargs)
+            
+            # Log successful interaction
+            self._log_interaction(method, url, response)
+            
+            return response
+            
+        except Exception as error:
+            # Log failed interaction
+            self._log_interaction(method, url, error=error)
+            
+            # Re-raise the exception
+            raise
     
     def get(self, url: str, **kwargs) -> Any:
         """Make a GET request with OCP context."""

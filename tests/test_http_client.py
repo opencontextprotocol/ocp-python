@@ -100,7 +100,13 @@ class TestOCPHTTPClient:
             action="api_call_get",
             api_endpoint="GET /users", 
             result="HTTP 200",
-            metadata={"url": "https://api.example.com/users", "domain": "api.example.com"}
+            metadata={
+                "method": "GET",
+                "url": "https://api.example.com/users", 
+                "domain": "api.example.com",
+                "success": True,
+                "status_code": 200
+            }
         )
     
     def test_log_interaction_disabled(self, context):
@@ -134,12 +140,29 @@ class TestOCPHTTPClient:
         
         # Verify calls
         expected_calls = [
-            call(action="api_call_get", api_endpoint="GET /missing", result="HTTP 404", 
-                 metadata={"url": "https://api.example.com/missing", "domain": "api.example.com"}),
+            call(action="api_call_get", api_endpoint="GET /missing", result="HTTP 404",
+                 metadata={
+                     "method": "GET",
+                     "url": "https://api.example.com/missing", 
+                     "domain": "api.example.com",
+                     "success": False,
+                     "status_code": 404
+                 }),
             call(action="api_call_post", api_endpoint="POST /create", result="HTTP 201",
-                 metadata={"url": "https://api.example.com/create", "domain": "api.example.com"}),
+                 metadata={
+                     "method": "POST",
+                     "url": "https://api.example.com/create", 
+                     "domain": "api.example.com",
+                     "success": True,
+                     "status_code": 201
+                 }),
             call(action="api_call_put", api_endpoint="PUT /update", result=None,
-                 metadata={"url": "https://api.example.com/update", "domain": "api.example.com"})
+                 metadata={
+                     "method": "PUT",
+                     "url": "https://api.example.com/update", 
+                     "domain": "api.example.com",
+                     "success": None
+                 })
         ]
         context.add_interaction.assert_has_calls(expected_calls)
     
@@ -333,7 +356,9 @@ class TestWrapAPI:
         """Test that relative URLs are properly handled."""
         with patch("requests.Session") as mock_session_class:
             mock_session = Mock()
-            mock_session.request = Mock()
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_session.request = Mock(return_value=mock_response)
             mock_session_class.return_value = mock_session
             
             api_client = wrap_api("https://api.example.com", context)
@@ -347,18 +372,18 @@ class TestWrapAPI:
             assert args[1] == "https://api.example.com/users"
     
     def test_wrap_api_absolute_url_handling(self, context):
-        """Test that absolute URLs are passed through unchanged.""" 
+        """Test that absolute URLs are passed through unchanged."""
         with patch("requests.Session") as mock_session_class:
             mock_session = Mock()
-            mock_session.request = Mock()
+            mock_response = Mock()
+            mock_response.status_code = 201
+            mock_session.request = Mock(return_value=mock_response)
             mock_session_class.return_value = mock_session
             
             api_client = wrap_api("https://api.example.com", context)
             
             # Test absolute URL
-            api_client.request("POST", "https://other-api.com/webhook")
-            
-            # Verify URL was passed through unchanged
+            api_client.request("POST", "https://other-api.com/webhook")            # Verify URL was passed through unchanged
             args = mock_session.request.call_args[0]
             assert args[1] == "https://other-api.com/webhook"
 
