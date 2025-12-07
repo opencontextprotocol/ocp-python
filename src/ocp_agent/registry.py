@@ -40,7 +40,7 @@ class OCPRegistry:
         """
         self.registry_url = (
             registry_url or 
-            os.getenv('OCP_REGISTRY_URL', 'https://registry.ocp.dev')
+            os.getenv('OCP_REGISTRY_URL', 'https://api.opencontextprotocol.io')
         ).rstrip('/')
         
         # Validate URL format
