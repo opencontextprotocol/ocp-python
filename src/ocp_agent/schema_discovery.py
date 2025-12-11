@@ -56,13 +56,14 @@ class OCPSchemaDiscovery:
     def __init__(self):
         self.cached_specs: Dict[str, OCPAPISpec] = {}
     
-    def discover_api(self, spec_url: str, base_url: Optional[str] = None) -> OCPAPISpec:
+    def discover_api(self, spec_url: str, base_url: Optional[str] = None, include_tags: Optional[List[str]] = None) -> OCPAPISpec:
         """
         Discover API capabilities from OpenAPI specification.
         
         Args:
             spec_url: URL to OpenAPI specification (JSON or YAML)
             base_url: Optional override for API base URL
+            include_tags: Optional list of tags to filter tools by (only tools with these tags will be included)
             
         Returns:
             OCPAPISpec with discovered tools and capabilities
@@ -70,7 +71,7 @@ class OCPSchemaDiscovery:
         # Check cache first
         if spec_url in self.cached_specs:
             return self.cached_specs[spec_url]
-        
+
         try:
             # Fetch and parse OpenAPI spec
             spec_data = self._fetch_spec(spec_url)
@@ -78,6 +79,18 @@ class OCPSchemaDiscovery:
             
             # Cache for future use
             self.cached_specs[spec_url] = parsed_spec
+            
+            # Apply tag filtering if specified (only on newly parsed specs)
+            if include_tags:
+                filtered_tools = self._filter_tools_by_tags(parsed_spec.tools, include_tags)
+                return OCPAPISpec(
+                    base_url=parsed_spec.base_url,
+                    title=parsed_spec.title,
+                    version=parsed_spec.version,
+                    description=parsed_spec.description,
+                    tools=filtered_tools,
+                    raw_spec=parsed_spec.raw_spec
+                )
             
             return parsed_spec
         except Exception as e:
@@ -320,6 +333,20 @@ class OCPSchemaDiscovery:
                     return json_content['schema']
         
         return None
+    
+    def _filter_tools_by_tags(self, tools: List[OCPTool], include_tags: List[str]) -> List[OCPTool]:
+        """Filter tools to only include those that have at least one matching tag"""
+        if not include_tags:
+            return tools
+            
+        filtered_tools = []
+        for tool in tools:
+            if tool.tags:
+                # Check if any of the tool's tags match any of the include_tags
+                if any(tag in include_tags for tag in tool.tags):
+                    filtered_tools.append(tool)
+        
+        return filtered_tools
     
     def get_tools_by_tag(self, api_spec: OCPAPISpec, tag: str) -> List[OCPTool]:
         """Get tools filtered by tag"""
