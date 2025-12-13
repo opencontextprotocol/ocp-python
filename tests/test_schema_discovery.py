@@ -723,28 +723,27 @@ class TestResourceFiltering:
     
     def test_filter_tools_by_resources_single_resource(self, discovery, tools_with_resources):
         """Test filtering tools by a single resource name."""
-        # Filter for repos resources only
+        # Filter for repos resources only (first segment matching)
         filtered_tools = discovery._filter_tools_by_resources(tools_with_resources, ["repos"])
         
-        assert len(filtered_tools) == 3  # /repos/{owner}/{repo}, /user/repos, /repos/{owner}/{repo}/issues
+        assert len(filtered_tools) == 2  # /repos/{owner}/{repo}, /repos/{owner}/{repo}/issues (NOT /user/repos)
         path_set = {tool.path for tool in filtered_tools}
         assert "/repos/{owner}/{repo}" in path_set
-        assert "/user/repos" in path_set
         assert "/repos/{owner}/{repo}/issues" in path_set
     
     def test_filter_tools_by_resources_multiple_resources(self, discovery, tools_with_resources):
         """Test filtering tools by multiple resource names."""
-        # Filter for both repos and orgs resources
+        # Filter for both repos and orgs resources (first segment matching)
         filtered_tools = discovery._filter_tools_by_resources(tools_with_resources, ["repos", "orgs"])
         
-        assert len(filtered_tools) == 4  # All tools have repos or orgs in path
+        assert len(filtered_tools) == 3  # /repos/..., /repos/.../issues, /orgs/... (NOT /user/repos)
     
     def test_filter_tools_by_resources_case_insensitive(self, discovery, tools_with_resources):
         """Test that resource filtering is case-insensitive."""
-        # Filter with different case
+        # Filter with different case (first segment matching)
         filtered_tools = discovery._filter_tools_by_resources(tools_with_resources, ["REPOS", "Orgs"])
         
-        assert len(filtered_tools) == 4
+        assert len(filtered_tools) == 3
     
     def test_filter_tools_by_resources_no_matches(self, discovery, tools_with_resources):
         """Test filtering tools with resources that don't match any paths."""
@@ -773,22 +772,26 @@ class TestResourceFiltering:
         """Test that only exact segment matches are included, not substring matches."""
         tools = [
             OCPTool(name="listPaymentMethods", description="List payment methods", method="GET", 
-                   path="/v1/payment_methods", parameters={}, response_schema=None),
+                   path="/payment_methods", parameters={}, response_schema=None),
             OCPTool(name="createPaymentIntent", description="Create payment intent", method="POST",
-                   path="/v1/payment_intents", parameters={}, response_schema=None),
+                   path="/payment_intents", parameters={}, response_schema=None),
             OCPTool(name="listPayments", description="List payments", method="GET",
-                   path="/v1/payments", parameters={}, response_schema=None)
+                   path="/payments", parameters={}, response_schema=None)
         ]
         
-        # Filter for "payment" should only match "/v1/payments" (exact segment match)
-        # Should NOT match "payment_methods" or "payment_intents" (those are different segments)
+        # Filter for "payment" should not match any (no exact segment match)
         filtered_tools = discovery._filter_tools_by_resources(tools, ["payment"])
-        assert len(filtered_tools) == 0  # "payment" doesn't exactly match any segment
+        assert len(filtered_tools) == 0  # "payment" doesn't exactly match any first segment
         
-        # Filter for "payments" should match the exact segment
+        # Filter for "payments" should match the exact first segment
         filtered_tools = discovery._filter_tools_by_resources(tools, ["payments"])
         assert len(filtered_tools) == 1
-        assert filtered_tools[0].path == "/v1/payments"
+        assert filtered_tools[0].path == "/payments"
+        
+        # Filter for "payment_methods" should match
+        filtered_tools = discovery._filter_tools_by_resources(tools, ["payment_methods"])
+        assert len(filtered_tools) == 1
+        assert filtered_tools[0].path == "/payment_methods"
     
     def test_filter_tools_by_resources_with_dots(self, discovery):
         """Test that dot-separated paths work correctly (e.g., Slack API)."""
@@ -827,10 +830,62 @@ class TestResourceFiltering:
         assert len(filtered_tools) == 1
         assert filtered_tools[0].path == "/repos/{owner}/{repo}"
         
-        # Filter for "repositories" should match the enterprise endpoint
+        # Filter for "repositories" should match the enterprise endpoint (but first segment is "enterprises")
         filtered_tools = discovery._filter_tools_by_resources(tools, ["repositories"])
+        assert len(filtered_tools) == 0  # "repositories" is not the first segment
+        
+        # Filter for "enterprises" should match the enterprise endpoint
+        filtered_tools = discovery._filter_tools_by_resources(tools, ["enterprises"])
         assert len(filtered_tools) == 1
-        assert "/repositories" in filtered_tools[0].path
+        assert "/enterprises" in filtered_tools[0].path
+    
+    def test_filter_tools_by_resources_with_path_prefix(self, discovery):
+        """Test filtering with path_prefix to strip version prefixes."""
+        tools = [
+            OCPTool(name="listPayments", description="List payments", method="GET",
+                   path="/v1/payments", parameters={}, response_schema=None),
+            OCPTool(name="createCharge", description="Create charge", method="POST",
+                   path="/v1/charges", parameters={}, response_schema=None),
+            OCPTool(name="legacyPayment", description="Legacy payment", method="GET",
+                   path="/v2/payments", parameters={}, response_schema=None)
+        ]
+        
+        # Filter for "payments" with /v1 prefix
+        filtered_tools = discovery._filter_tools_by_resources(tools, ["payments"], path_prefix="/v1")
+        assert len(filtered_tools) == 1
+        assert filtered_tools[0].path == "/v1/payments"
+        
+        # Filter for "payments" with /v2 prefix
+        filtered_tools = discovery._filter_tools_by_resources(tools, ["payments"], path_prefix="/v2")
+        assert len(filtered_tools) == 1
+        assert filtered_tools[0].path == "/v2/payments"
+        
+        # Filter without prefix - no matches (first segment is "v1" or "v2")
+        filtered_tools = discovery._filter_tools_by_resources(tools, ["payments"])
+        assert len(filtered_tools) == 0
+    
+    def test_filter_tools_by_resources_first_segment_only(self, discovery):
+        """Test that only the first resource segment is matched."""
+        tools = [
+            OCPTool(name="listRepoIssues", description="List repo issues", method="GET",
+                   path="/repos/{owner}/{repo}/issues", parameters={}, response_schema=None),
+            OCPTool(name="listUserRepos", description="List user repos", method="GET",
+                   path="/user/repos", parameters={}, response_schema=None)
+        ]
+        
+        # Filter for "repos" - should match /repos/... but NOT /user/repos (first segment is "user")
+        filtered_tools = discovery._filter_tools_by_resources(tools, ["repos"])
+        assert len(filtered_tools) == 1
+        assert filtered_tools[0].path == "/repos/{owner}/{repo}/issues"
+        
+        # Filter for "user" - should match /user/repos
+        filtered_tools = discovery._filter_tools_by_resources(tools, ["user"])
+        assert len(filtered_tools) == 1
+        assert filtered_tools[0].path == "/user/repos"
+        
+        # Filter for "issues" - should NOT match anything (issues is not first segment)
+        filtered_tools = discovery._filter_tools_by_resources(tools, ["issues"])
+        assert len(filtered_tools) == 0
     
     @patch('ocp_agent.schema_discovery.requests.get')
     def test_discover_api_with_include_resources(self, mock_get, discovery, openapi_spec_with_resources):
@@ -841,15 +896,15 @@ class TestResourceFiltering:
         mock_response.raise_for_status.return_value = None
         mock_get.return_value = mock_response
         
-        # Discover API with only repos resources
+        # Discover API with only repos resources (first segment matching)
         api_spec = discovery.discover_api(
             "https://api.github.com/openapi.json",
             include_resources=["repos"]
         )
         
-        # Should have 3 tools with repos in path
-        assert len(api_spec.tools) == 3
-        assert all("repos" in tool.path.lower() for tool in api_spec.tools)
+        # Should have 2 tools starting with /repos
+        assert len(api_spec.tools) == 2
+        assert all(tool.path.lower().startswith("/repos") for tool in api_spec.tools)
     
     @patch('ocp_agent.schema_discovery.requests.get')
     def test_discover_api_with_multiple_include_resources(self, mock_get, discovery, openapi_spec_with_resources):
@@ -860,14 +915,14 @@ class TestResourceFiltering:
         mock_response.raise_for_status.return_value = None
         mock_get.return_value = mock_response
         
-        # Discover API with repos and issues resources
+        # Discover API with repos and orgs resources (first segment matching)
         api_spec = discovery.discover_api(
             "https://api.github.com/openapi.json",
-            include_resources=["repos", "issues", "orgs"]
+            include_resources=["repos", "orgs"]
         )
         
-        # Should have all 4 tools
-        assert len(api_spec.tools) == 4
+        # Should have 3 tools (repos, repos/issues, orgs)
+        assert len(api_spec.tools) == 3
     
     @patch('ocp_agent.schema_discovery.requests.get')
     def test_discover_api_without_include_resources(self, mock_get, discovery, openapi_spec_with_resources):

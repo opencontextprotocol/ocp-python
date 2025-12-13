@@ -56,14 +56,15 @@ class OCPSchemaDiscovery:
     def __init__(self):
         self.cached_specs: Dict[str, OCPAPISpec] = {}
     
-    def discover_api(self, spec_url: str, base_url: Optional[str] = None, include_resources: Optional[List[str]] = None) -> OCPAPISpec:
+    def discover_api(self, spec_url: str, base_url: Optional[str] = None, include_resources: Optional[List[str]] = None, path_prefix: Optional[str] = None) -> OCPAPISpec:
         """
         Discover API capabilities from OpenAPI specification.
         
         Args:
             spec_url: URL to OpenAPI specification (JSON or YAML)
             base_url: Optional override for API base URL
-            include_resources: Optional list of resource names to filter tools by (case-insensitive path matching)
+            include_resources: Optional list of resource names to filter tools by (case-insensitive, first resource segment matching)
+            path_prefix: Optional path prefix to strip before filtering (e.g., '/v1', '/api/v2')
             
         Returns:
             OCPAPISpec with discovered tools and capabilities
@@ -82,7 +83,7 @@ class OCPSchemaDiscovery:
             
             # Apply resource filtering if specified (only on newly parsed specs)
             if include_resources:
-                filtered_tools = self._filter_tools_by_resources(parsed_spec.tools, include_resources)
+                filtered_tools = self._filter_tools_by_resources(parsed_spec.tools, include_resources, path_prefix)
                 return OCPAPISpec(
                     base_url=parsed_spec.base_url,
                     title=parsed_spec.title,
@@ -334,8 +335,8 @@ class OCPSchemaDiscovery:
         
         return None
     
-    def _filter_tools_by_resources(self, tools: List[OCPTool], include_resources: List[str]) -> List[OCPTool]:
-        """Filter tools to only include those whose paths contain at least one matching resource name"""
+    def _filter_tools_by_resources(self, tools: List[OCPTool], include_resources: List[str], path_prefix: Optional[str] = None) -> List[OCPTool]:
+        """Filter tools to only include those whose first resource segment matches include_resources"""
         if not include_resources:
             return tools
         
@@ -344,15 +345,24 @@ class OCPSchemaDiscovery:
         
         filtered_tools = []
         for tool in tools:
+            path = tool.path
+            
+            # Strip path prefix if provided
+            if path_prefix:
+                prefix_lower = path_prefix.lower()
+                path_lower = path.lower()
+                if path_lower.startswith(prefix_lower):
+                    path = path[len(path_prefix):]
+            
             # Extract path segments by splitting on both '/' and '.'
-            path_lower = tool.path.lower()
+            path_lower = path.lower()
             # Replace dots with slashes for uniform splitting
             path_normalized = path_lower.replace('.', '/')
             # Split by '/' and filter out empty segments and parameter placeholders
             segments = [seg for seg in path_normalized.split('/') if seg and not seg.startswith('{')]
             
-            # Check if any segment exactly matches any of the include_resources
-            if any(segment in normalized_resources for segment in segments):
+            # Check if the first segment matches any of the include_resources
+            if segments and segments[0] in normalized_resources:
                 filtered_tools.append(tool)
         
         return filtered_tools
