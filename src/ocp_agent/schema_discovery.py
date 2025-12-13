@@ -56,14 +56,14 @@ class OCPSchemaDiscovery:
     def __init__(self):
         self.cached_specs: Dict[str, OCPAPISpec] = {}
     
-    def discover_api(self, spec_url: str, base_url: Optional[str] = None, include_tags: Optional[List[str]] = None) -> OCPAPISpec:
+    def discover_api(self, spec_url: str, base_url: Optional[str] = None, include_resources: Optional[List[str]] = None) -> OCPAPISpec:
         """
         Discover API capabilities from OpenAPI specification.
         
         Args:
             spec_url: URL to OpenAPI specification (JSON or YAML)
             base_url: Optional override for API base URL
-            include_tags: Optional list of tags to filter tools by (only tools with these tags will be included)
+            include_resources: Optional list of resource names to filter tools by (case-insensitive path matching)
             
         Returns:
             OCPAPISpec with discovered tools and capabilities
@@ -80,9 +80,9 @@ class OCPSchemaDiscovery:
             # Cache for future use
             self.cached_specs[spec_url] = parsed_spec
             
-            # Apply tag filtering if specified (only on newly parsed specs)
-            if include_tags:
-                filtered_tools = self._filter_tools_by_tags(parsed_spec.tools, include_tags)
+            # Apply resource filtering if specified (only on newly parsed specs)
+            if include_resources:
+                filtered_tools = self._filter_tools_by_resources(parsed_spec.tools, include_resources)
                 return OCPAPISpec(
                     base_url=parsed_spec.base_url,
                     title=parsed_spec.title,
@@ -334,17 +334,24 @@ class OCPSchemaDiscovery:
         
         return None
     
-    def _filter_tools_by_tags(self, tools: List[OCPTool], include_tags: List[str]) -> List[OCPTool]:
-        """Filter tools to only include those that have at least one matching tag"""
-        if not include_tags:
+    def _filter_tools_by_resources(self, tools: List[OCPTool], include_resources: List[str]) -> List[OCPTool]:
+        """Filter tools to only include those whose paths contain at least one matching resource name"""
+        if not include_resources:
             return tools
-            
+        
+        # Normalize resource names to lowercase for case-insensitive matching
+        normalized_resources = [resource.lower() for resource in include_resources]
+        
         filtered_tools = []
         for tool in tools:
-            if tool.tags:
-                # Check if any of the tool's tags match any of the include_tags
-                if any(tag in include_tags for tag in tool.tags):
-                    filtered_tools.append(tool)
+            # Extract path segments and normalize to lowercase
+            path_lower = tool.path.lower()
+            # Split path by '/' and filter out empty segments and parameter placeholders
+            segments = [seg for seg in path_lower.split('/') if seg and not seg.startswith('{')]
+            
+            # Check if any segment contains any of the include_resources
+            if any(any(resource in segment for resource in normalized_resources) for segment in segments):
+                filtered_tools.append(tool)
         
         return filtered_tools
     

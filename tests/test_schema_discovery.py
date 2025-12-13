@@ -617,8 +617,8 @@ class TestOCPAPISpec:
         assert api_spec.tools[1].name == "tool2"
 
 
-class TestTagFiltering:
-    """Test tag-based filtering functionality for discover_api method."""
+class TestResourceFiltering:
+    """Test resource-based filtering functionality for discover_api method."""
     
     @pytest.fixture
     def discovery(self):
@@ -626,8 +626,8 @@ class TestTagFiltering:
         return OCPSchemaDiscovery()
     
     @pytest.fixture
-    def openapi_spec_with_tags(self):
-        """OpenAPI spec with multiple tools having different tags."""
+    def openapi_spec_with_resources(self):
+        """OpenAPI spec with multiple tools having different resource paths."""
         return {
             "openapi": "3.0.0",
             "info": {"title": "GitHub API", "version": "3.0"},
@@ -637,7 +637,6 @@ class TestTagFiltering:
                     "get": {
                         "operationId": "repos/get",
                         "summary": "Get a repository",
-                        "tags": ["repos"],
                         "parameters": [
                             {"name": "owner", "in": "path", "required": True, "schema": {"type": "string"}},
                             {"name": "repo", "in": "path", "required": True, "schema": {"type": "string"}}
@@ -649,7 +648,6 @@ class TestTagFiltering:
                     "get": {
                         "operationId": "repos/listForAuthenticatedUser",
                         "summary": "List user repositories",
-                        "tags": ["repos"],
                         "responses": {"200": {"description": "List of repositories"}}
                     }
                 },
@@ -657,7 +655,6 @@ class TestTagFiltering:
                     "get": {
                         "operationId": "issues/listForRepo",
                         "summary": "List repository issues",
-                        "tags": ["issues"],
                         "parameters": [
                             {"name": "owner", "in": "path", "required": True, "schema": {"type": "string"}},
                             {"name": "repo", "in": "path", "required": True, "schema": {"type": "string"}}
@@ -669,7 +666,6 @@ class TestTagFiltering:
                     "get": {
                         "operationId": "orgs/listMembers",
                         "summary": "List organization members",
-                        "tags": ["orgs"],
                         "parameters": [
                             {"name": "org", "in": "path", "required": True, "schema": {"type": "string"}}
                         ],
@@ -680,8 +676,8 @@ class TestTagFiltering:
         }
     
     @pytest.fixture
-    def tools_with_tags(self):
-        """Create test tools with different tags."""
+    def tools_with_resources(self):
+        """Create test tools with different resource paths."""
         return [
             OCPTool(
                 name="reposGet",
@@ -725,112 +721,110 @@ class TestTagFiltering:
             )
         ]
     
-    def test_filter_tools_by_tags_single_tag(self, discovery, tools_with_tags):
-        """Test filtering tools by a single tag."""
-        # Filter for repos tools only
-        filtered_tools = discovery._filter_tools_by_tags(tools_with_tags, ["repos"])
+    def test_filter_tools_by_resources_single_resource(self, discovery, tools_with_resources):
+        """Test filtering tools by a single resource name."""
+        # Filter for repos resources only
+        filtered_tools = discovery._filter_tools_by_resources(tools_with_resources, ["repos"])
         
-        assert len(filtered_tools) == 2
-        assert all(tool.name.startswith("repos") for tool in filtered_tools)
-        assert "repos" in filtered_tools[0].tags
-        assert "repos" in filtered_tools[1].tags
+        assert len(filtered_tools) == 3  # /repos/{owner}/{repo}, /user/repos, /repos/{owner}/{repo}/issues
+        path_set = {tool.path for tool in filtered_tools}
+        assert "/repos/{owner}/{repo}" in path_set
+        assert "/user/repos" in path_set
+        assert "/repos/{owner}/{repo}/issues" in path_set
     
-    def test_filter_tools_by_tags_multiple_tags(self, discovery, tools_with_tags):
-        """Test filtering tools by multiple tags."""
-        # Filter for both repos and issues tools
-        filtered_tools = discovery._filter_tools_by_tags(tools_with_tags, ["repos", "issues"])
+    def test_filter_tools_by_resources_multiple_resources(self, discovery, tools_with_resources):
+        """Test filtering tools by multiple resource names."""
+        # Filter for both repos and orgs resources
+        filtered_tools = discovery._filter_tools_by_resources(tools_with_resources, ["repos", "orgs"])
         
-        assert len(filtered_tools) == 3
-        tool_names = {tool.name for tool in filtered_tools}
-        assert "reposGet" in tool_names
-        assert "reposListForAuthenticatedUser" in tool_names
-        assert "issuesListForRepo" in tool_names
-        assert "orgsListMembers" not in tool_names
+        assert len(filtered_tools) == 4  # All tools have repos or orgs in path
     
-    def test_filter_tools_by_tags_no_matches(self, discovery, tools_with_tags):
-        """Test filtering tools with tags that don't match any tools."""
-        # Filter for tags that don't exist
-        filtered_tools = discovery._filter_tools_by_tags(tools_with_tags, ["nonexistent", "missing"])
+    def test_filter_tools_by_resources_case_insensitive(self, discovery, tools_with_resources):
+        """Test that resource filtering is case-insensitive."""
+        # Filter with different case
+        filtered_tools = discovery._filter_tools_by_resources(tools_with_resources, ["REPOS", "Orgs"])
+        
+        assert len(filtered_tools) == 4
+    
+    def test_filter_tools_by_resources_no_matches(self, discovery, tools_with_resources):
+        """Test filtering tools with resources that don't match any paths."""
+        # Filter for resources that don't exist
+        filtered_tools = discovery._filter_tools_by_resources(tools_with_resources, ["payments", "customers"])
         
         assert len(filtered_tools) == 0
     
-    def test_filter_tools_by_tags_empty_include_tags(self, discovery, tools_with_tags):
-        """Test filtering with empty include_tags list returns all tools."""
+    def test_filter_tools_by_resources_empty_list(self, discovery, tools_with_resources):
+        """Test filtering with empty include_resources list returns all tools."""
         # Empty list should return all tools
-        filtered_tools = discovery._filter_tools_by_tags(tools_with_tags, [])
+        filtered_tools = discovery._filter_tools_by_resources(tools_with_resources, [])
         
         assert len(filtered_tools) == 4
-        assert filtered_tools == tools_with_tags
+        assert filtered_tools == tools_with_resources
     
-    def test_filter_tools_by_tags_none_include_tags(self, discovery, tools_with_tags):
-        """Test filtering with None include_tags returns all tools."""
+    def test_filter_tools_by_resources_none(self, discovery, tools_with_resources):
+        """Test filtering with None include_resources returns all tools."""
         # None should return all tools
-        filtered_tools = discovery._filter_tools_by_tags(tools_with_tags, None)
+        filtered_tools = discovery._filter_tools_by_resources(tools_with_resources, None)
         
         assert len(filtered_tools) == 4
-        assert filtered_tools == tools_with_tags
+        assert filtered_tools == tools_with_resources
     
-    def test_filter_tools_by_tags_tools_without_tags(self, discovery):
-        """Test filtering tools that have no tags."""
-        tools_no_tags = [
-            OCPTool(name="tool1", description="First tool", method="GET", path="/tool1", parameters={}, response_schema=None, tags=None),
-            OCPTool(name="tool2", description="Second tool", method="GET", path="/tool2", parameters={}, response_schema=None, tags=[])
+    def test_filter_tools_by_resources_partial_match(self, discovery):
+        """Test that partial resource names match."""
+        tools = [
+            OCPTool(name="listPaymentMethods", description="List payment methods", method="GET", 
+                   path="/v1/payment_methods", parameters={}, response_schema=None),
+            OCPTool(name="createPaymentIntent", description="Create payment intent", method="POST",
+                   path="/v1/payment_intents", parameters={}, response_schema=None)
         ]
         
-        # Should return empty list since tools have no tags
-        filtered_tools = discovery._filter_tools_by_tags(tools_no_tags, ["any_tag"])
-        assert len(filtered_tools) == 0
+        # Filter for "payment" should match both
+        filtered_tools = discovery._filter_tools_by_resources(tools, ["payment"])
+        assert len(filtered_tools) == 2
     
     @patch('ocp_agent.schema_discovery.requests.get')
-    def test_discover_api_with_include_tags(self, mock_get, discovery, openapi_spec_with_tags):
-        """Test discover_api method with include_tags parameter."""
+    def test_discover_api_with_include_resources(self, mock_get, discovery, openapi_spec_with_resources):
+        """Test discover_api method with include_resources parameter."""
         # Mock the HTTP response
         mock_response = Mock()
-        mock_response.json.return_value = openapi_spec_with_tags
+        mock_response.json.return_value = openapi_spec_with_resources
         mock_response.raise_for_status.return_value = None
         mock_get.return_value = mock_response
         
-        # Discover API with only repos tools
+        # Discover API with only repos resources
         api_spec = discovery.discover_api(
             "https://api.github.com/openapi.json",
-            include_tags=["repos"]
+            include_resources=["repos"]
         )
         
-        # Should only have 2 repos tools
-        assert len(api_spec.tools) == 2
-        assert all("repos" in tool.tags for tool in api_spec.tools)
-        assert any(tool.name == "reposGet" for tool in api_spec.tools)
-        assert any(tool.name == "reposListForAuthenticatedUser" for tool in api_spec.tools)
-    
-    @patch('ocp_agent.schema_discovery.requests.get')
-    def test_discover_api_with_multiple_include_tags(self, mock_get, discovery, openapi_spec_with_tags):
-        """Test discover_api method with multiple include_tags."""
-        # Mock the HTTP response
-        mock_response = Mock()
-        mock_response.json.return_value = openapi_spec_with_tags
-        mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
-        
-        # Discover API with repos and issues tools
-        api_spec = discovery.discover_api(
-            "https://api.github.com/openapi.json",
-            include_tags=["repos", "issues"]
-        )
-        
-        # Should have 3 tools (2 repos + 1 issues)
+        # Should have 3 tools with repos in path
         assert len(api_spec.tools) == 3
-        tool_names = {tool.name for tool in api_spec.tools}
-        assert "reposGet" in tool_names
-        assert "reposListForAuthenticatedUser" in tool_names
-        assert "issuesListForRepo" in tool_names
-        assert "orgsListMembers" not in tool_names
+        assert all("repos" in tool.path.lower() for tool in api_spec.tools)
     
     @patch('ocp_agent.schema_discovery.requests.get')
-    def test_discover_api_without_include_tags(self, mock_get, discovery, openapi_spec_with_tags):
-        """Test discover_api method without include_tags returns all tools."""
+    def test_discover_api_with_multiple_include_resources(self, mock_get, discovery, openapi_spec_with_resources):
+        """Test discover_api method with multiple include_resources."""
         # Mock the HTTP response
         mock_response = Mock()
-        mock_response.json.return_value = openapi_spec_with_tags
+        mock_response.json.return_value = openapi_spec_with_resources
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+        
+        # Discover API with repos and issues resources
+        api_spec = discovery.discover_api(
+            "https://api.github.com/openapi.json",
+            include_resources=["repos", "issues", "orgs"]
+        )
+        
+        # Should have all 4 tools
+        assert len(api_spec.tools) == 4
+    
+    @patch('ocp_agent.schema_discovery.requests.get')
+    def test_discover_api_without_include_resources(self, mock_get, discovery, openapi_spec_with_resources):
+        """Test discover_api method without include_resources returns all tools."""
+        # Mock the HTTP response
+        mock_response = Mock()
+        mock_response.json.return_value = openapi_spec_with_resources
         mock_response.raise_for_status.return_value = None
         mock_get.return_value = mock_response
         
@@ -839,8 +833,3 @@ class TestTagFiltering:
         
         # Should have all 4 tools
         assert len(api_spec.tools) == 4
-        tool_names = {tool.name for tool in api_spec.tools}
-        assert "reposGet" in tool_names
-        assert "reposListForAuthenticatedUser" in tool_names
-        assert "issuesListForRepo" in tool_names
-        assert "orgsListMembers" in tool_names
