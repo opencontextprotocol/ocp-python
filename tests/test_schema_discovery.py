@@ -769,18 +769,68 @@ class TestResourceFiltering:
         assert len(filtered_tools) == 4
         assert filtered_tools == tools_with_resources
     
-    def test_filter_tools_by_resources_partial_match(self, discovery):
-        """Test that partial resource names match."""
+    def test_filter_tools_by_resources_exact_match(self, discovery):
+        """Test that only exact segment matches are included, not substring matches."""
         tools = [
             OCPTool(name="listPaymentMethods", description="List payment methods", method="GET", 
                    path="/v1/payment_methods", parameters={}, response_schema=None),
             OCPTool(name="createPaymentIntent", description="Create payment intent", method="POST",
-                   path="/v1/payment_intents", parameters={}, response_schema=None)
+                   path="/v1/payment_intents", parameters={}, response_schema=None),
+            OCPTool(name="listPayments", description="List payments", method="GET",
+                   path="/v1/payments", parameters={}, response_schema=None)
         ]
         
-        # Filter for "payment" should match both
+        # Filter for "payment" should only match "/v1/payments" (exact segment match)
+        # Should NOT match "payment_methods" or "payment_intents" (those are different segments)
         filtered_tools = discovery._filter_tools_by_resources(tools, ["payment"])
+        assert len(filtered_tools) == 0  # "payment" doesn't exactly match any segment
+        
+        # Filter for "payments" should match the exact segment
+        filtered_tools = discovery._filter_tools_by_resources(tools, ["payments"])
+        assert len(filtered_tools) == 1
+        assert filtered_tools[0].path == "/v1/payments"
+    
+    def test_filter_tools_by_resources_with_dots(self, discovery):
+        """Test that dot-separated paths work correctly (e.g., Slack API)."""
+        tools = [
+            OCPTool(name="conversationsReplies", description="Get conversation replies", method="GET",
+                   path="/conversations.replies", parameters={}, response_schema=None),
+            OCPTool(name="conversationsHistory", description="Get conversation history", method="GET",
+                   path="/conversations.history", parameters={}, response_schema=None),
+            OCPTool(name="chatPostMessage", description="Post a message", method="POST",
+                   path="/chat.postMessage", parameters={}, response_schema=None)
+        ]
+        
+        # Filter for "conversations" should match both conversation endpoints
+        filtered_tools = discovery._filter_tools_by_resources(tools, ["conversations"])
         assert len(filtered_tools) == 2
+        assert all("conversations" in tool.path for tool in filtered_tools)
+        
+        # Filter for "chat" should match the chat endpoint
+        filtered_tools = discovery._filter_tools_by_resources(tools, ["chat"])
+        assert len(filtered_tools) == 1
+        assert filtered_tools[0].path == "/chat.postMessage"
+    
+    def test_filter_tools_by_resources_no_substring_match(self, discovery):
+        """Test that substring matching doesn't work - only exact segment matches."""
+        tools = [
+            OCPTool(name="listRepos", description="List repos", method="GET",
+                   path="/repos/{owner}/{repo}", parameters={}, response_schema=None),
+            OCPTool(name="listRepositories", description="List enterprise repositories", method="GET",
+                   path="/enterprises/{enterprise}/code-security/configurations/{config_id}/repositories",
+                   parameters={}, response_schema=None)
+        ]
+        
+        # Filter for "repos" should match "/repos/{owner}/{repo}"
+        # Should NOT match "/enterprises/.../repositories" (repos != repositories)
+        filtered_tools = discovery._filter_tools_by_resources(tools, ["repos"])
+        assert len(filtered_tools) == 1
+        assert filtered_tools[0].path == "/repos/{owner}/{repo}"
+        
+        # Filter for "repositories" should match the enterprise endpoint
+        filtered_tools = discovery._filter_tools_by_resources(tools, ["repositories"])
+        assert len(filtered_tools) == 1
+        assert "/repositories" in filtered_tools[0].path
     
     @patch('ocp_agent.schema_discovery.requests.get')
     def test_discover_api_with_include_resources(self, mock_get, discovery, openapi_spec_with_resources):

@@ -344,13 +344,15 @@ class OCPSchemaDiscovery:
         
         filtered_tools = []
         for tool in tools:
-            # Extract path segments and normalize to lowercase
+            # Extract path segments by splitting on both '/' and '.'
             path_lower = tool.path.lower()
-            # Split path by '/' and filter out empty segments and parameter placeholders
-            segments = [seg for seg in path_lower.split('/') if seg and not seg.startswith('{')]
+            # Replace dots with slashes for uniform splitting
+            path_normalized = path_lower.replace('.', '/')
+            # Split by '/' and filter out empty segments and parameter placeholders
+            segments = [seg for seg in path_normalized.split('/') if seg and not seg.startswith('{')]
             
-            # Check if any segment contains any of the include_resources
-            if any(any(resource in segment for resource in normalized_resources) for segment in segments):
+            # Check if any segment exactly matches any of the include_resources
+            if any(segment in normalized_resources for segment in segments):
                 filtered_tools.append(tool)
         
         return filtered_tools
