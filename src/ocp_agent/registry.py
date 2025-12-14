@@ -15,7 +15,7 @@ from .errors import RegistryUnavailable, APINotFound
 
 
 # Configuration constants
-DEFAULT_REGISTRY_URL = 'https://api.opencontextprotocol.io'
+DEFAULT_REGISTRY_URL = 'https://ocp.nallenscott.dev/api/v1'
 DEFAULT_TIMEOUT = 10
 SEARCH_TIMEOUT = 5
 DEFAULT_PER_PAGE = 10
@@ -66,7 +66,7 @@ class OCPRegistry:
         try:
             # Get API entry from registry
             response = requests.get(
-                urljoin(self.registry_url, f'/api/v1/registry/{name}'),
+                urljoin(self.registry_url, f'/registry/{name}'),
                 timeout=DEFAULT_TIMEOUT
             )
             
@@ -96,7 +96,7 @@ class OCPRegistry:
         """
         try:
             response = requests.get(
-                urljoin(self.registry_url, '/api/v1/search'),
+                urljoin(self.registry_url, '/search'),
                 params={'q': query, 'per_page': DEFAULT_PER_PAGE},
                 timeout=SEARCH_TIMEOUT
             )
@@ -118,7 +118,7 @@ class OCPRegistry:
         """
         try:
             response = requests.get(
-                urljoin(self.registry_url, '/api/v1/registry'),
+                urljoin(self.registry_url, '/registry'),
                 timeout=DEFAULT_TIMEOUT
             )
             response.raise_for_status()

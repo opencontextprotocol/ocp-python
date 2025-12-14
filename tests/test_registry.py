@@ -60,7 +60,7 @@ class TestOCPRegistry:
     def test_registry_initialization_default_url(self):
         """Test registry initialization with default URL."""
         registry = OCPRegistry()
-        assert registry.registry_url == "https://registry.ocp.dev"
+        assert registry.registry_url == "https://ocp.nallenscott.dev/api/v1"
     
     def test_registry_initialization_custom_url(self):
         """Test registry initialization with custom URL."""
@@ -82,7 +82,7 @@ class TestOCPRegistry:
         """Test successful API spec retrieval."""
         with requests_mock.Mocker() as m:
             m.get(
-                "https://test-registry.ocp.dev/api/v1/registry/httpbin",
+                "https://test-registry.ocp.dev/registry/httpbin",
                 json=sample_api_entry
             )
             
@@ -99,7 +99,7 @@ class TestOCPRegistry:
         """Test API spec retrieval with base URL override."""
         with requests_mock.Mocker() as m:
             m.get(
-                "https://test-registry.ocp.dev/api/v1/registry/httpbin",
+                "https://test-registry.ocp.dev/registry/httpbin",
                 json=sample_api_entry
             )
             
@@ -111,12 +111,12 @@ class TestOCPRegistry:
         """Test API spec retrieval for non-existent API."""
         with requests_mock.Mocker() as m:
             m.get(
-                "https://test-registry.ocp.dev/api/v1/registry/nonexistent",
+                "https://test-registry.ocp.dev/registry/nonexistent",
                 status_code=404
             )
             # Mock search for suggestions
             m.get(
-                "https://test-registry.ocp.dev/api/v1/search",
+                "https://test-registry.ocp.dev/search",
                 json={"results": [{"name": "httpbin"}]}
             )
             
@@ -130,7 +130,7 @@ class TestOCPRegistry:
         """Test API spec retrieval when registry is unavailable."""
         with requests_mock.Mocker() as m:
             m.get(
-                "https://test-registry.ocp.dev/api/v1/registry/httpbin",
+                "https://test-registry.ocp.dev/registry/httpbin",
                 exc=requests.exceptions.ConnectionError
             )
             
@@ -150,7 +150,7 @@ class TestOCPRegistry:
         
         with requests_mock.Mocker() as m:
             m.get(
-                "https://test-registry.ocp.dev/api/v1/search",
+                "https://test-registry.ocp.dev/search",
                 json=search_response
             )
             
@@ -162,7 +162,7 @@ class TestOCPRegistry:
         """Test API search when registry is unavailable."""
         with requests_mock.Mocker() as m:
             m.get(
-                "https://test-registry.ocp.dev/api/v1/search",
+                "https://test-registry.ocp.dev/search",
                 exc=requests.exceptions.ConnectionError
             )
             
@@ -181,7 +181,7 @@ class TestOCPRegistry:
         
         with requests_mock.Mocker() as m:
             m.get(
-                "https://test-registry.ocp.dev/api/v1/registry",
+                "https://test-registry.ocp.dev/registry",
                 json=api_list
             )
             
@@ -193,7 +193,7 @@ class TestOCPRegistry:
         """Test API listing when registry is unavailable."""
         with requests_mock.Mocker() as m:
             m.get(
-                "https://test-registry.ocp.dev/api/v1/registry",
+                "https://test-registry.ocp.dev/registry",
                 exc=requests.exceptions.ConnectionError
             )
             
@@ -223,7 +223,7 @@ class TestOCPRegistry:
         """Test getting suggestions with exact match."""
         with requests_mock.Mocker() as m:
             m.get(
-                "https://test-registry.ocp.dev/api/v1/search",
+                "https://test-registry.ocp.dev/search",
                 json={"results": [{"name": "github"}]}
             )
             
@@ -236,12 +236,12 @@ class TestOCPRegistry:
         with requests_mock.Mocker() as m:
             # First call returns no results
             m.get(
-                "https://test-registry.ocp.dev/api/v1/search?q=unknown",
+                "https://test-registry.ocp.dev/search?q=unknown",
                 json={"results": []}
             )
             # Second call with partial query returns results
             m.get(
-                "https://test-registry.ocp.dev/api/v1/search?q=unk",
+                "https://test-registry.ocp.dev/search?q=unk",
                 json={"results": [{"name": "github"}]}
             )
             
