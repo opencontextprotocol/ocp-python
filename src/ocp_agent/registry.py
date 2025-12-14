@@ -15,6 +15,7 @@ from .errors import RegistryUnavailable, APINotFound
 
 
 # Configuration constants
+DEFAULT_REGISTRY_URL = 'https://api.opencontextprotocol.io'
 DEFAULT_TIMEOUT = 10
 SEARCH_TIMEOUT = 5
 DEFAULT_PER_PAGE = 10
@@ -40,7 +41,7 @@ class OCPRegistry:
         """
         self.registry_url = (
             registry_url or 
-            os.getenv('OCP_REGISTRY_URL', 'https://api.opencontextprotocol.io')
+            os.getenv('OCP_REGISTRY_URL', DEFAULT_REGISTRY_URL)
         ).rstrip('/')
         
         # Validate URL format
