@@ -87,6 +87,9 @@ class OCPAgent:
             # Direct OpenAPI discovery
             agent.register_api('my-api', 'https://api.example.com/openapi.json')
         """
+        # Normalize name for case-insensitive matching
+        name = self._normalize_api_name(name)
+        
         # 1. Check if already loaded in memory
         if name in self.known_apis:
             return self.known_apis[name]
@@ -152,6 +155,7 @@ class OCPAgent:
             List of available tools
         """
         if api_name:
+            api_name = self._normalize_api_name(api_name)
             if api_name not in self.known_apis:
                 raise ValueError(f"Unknown API: {api_name}")
             return self.known_apis[api_name].tools
@@ -194,6 +198,7 @@ class OCPAgent:
             List of matching tools
         """
         if api_name:
+            api_name = self._normalize_api_name(api_name)
             if api_name not in self.known_apis:
                 return []
             return self.discovery.search_tools(self.known_apis[api_name], query)
@@ -299,6 +304,10 @@ class OCPAgent:
                 }
             )
             raise
+    
+    def _normalize_api_name(self, name: str) -> str:
+        """Normalize API name for case-insensitive matching."""
+        return name.lower().strip()
     
     def _validate_parameters(self, tool: OCPTool, parameters: Dict[str, Any]) -> List[str]:
         """Validate parameters against tool schema."""

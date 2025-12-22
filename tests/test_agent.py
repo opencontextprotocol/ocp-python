@@ -134,6 +134,26 @@ class TestOCPAgent:
             "https://custom.test.com"
         )
     
+    @patch('ocp_agent.registry.OCPRegistry.get_api_spec')
+    def test_register_api_normalizes_names(self, mock_registry, agent, sample_api_spec):
+        """Test that API names are normalized for case-insensitive matching."""
+        mock_registry.return_value = sample_api_spec
+        
+        # Register with mixed case
+        api_spec = agent.register_api("GitHuB")
+        assert "github" in agent.known_apis
+        assert api_spec.name == "github"
+        
+        # Can retrieve with any casing
+        assert agent.list_tools("GITHUB") == agent.list_tools("github")
+        assert agent.get_tool("get_items", "GitHub") is not None
+        assert len(agent.search_tools("items", "gitHUB")) > 0
+        
+        # Whitespace is stripped
+        agent.register_api("  stripe  ")
+        assert "stripe" in agent.known_apis
+        assert "  stripe  " not in agent.known_apis
+    
     def test_list_tools_no_apis(self, agent):
         """Test listing tools when no APIs are registered."""
         tools = agent.list_tools()
