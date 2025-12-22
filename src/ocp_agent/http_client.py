@@ -146,13 +146,13 @@ class OCPHTTPClient:
         return self.request('PATCH', url, **kwargs)
 
 
-def wrap_api(
+def _wrap_api(
     base_url: str, 
     context: AgentContext,
     headers: Optional[Dict[str, str]] = None
 ) -> OCPHTTPClient:
     """
-    Create an OCP-enabled client for a specific API.
+    Create an OCP-enabled client for a specific API (internal use only).
     
     Args:
         base_url: Base URL for the API (e.g., "https://api.github.com")

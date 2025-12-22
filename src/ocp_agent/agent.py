@@ -62,9 +62,10 @@ class OCPAgent:
         self.registry = OCPRegistry(registry_url)
         self.storage = OCPStorage() if enable_cache else None
         self.known_apis: Dict[str, OCPAPISpec] = {}
+        self.api_clients: Dict[str, OCPHTTPClient] = {}
         self.http_client = OCPHTTPClient(self.context)
     
-    def register_api(self, name: str, spec_url: Optional[str] = None, base_url: Optional[str] = None) -> OCPAPISpec:
+    def register_api(self, name: str, spec_url: Optional[str] = None, base_url: Optional[str] = None, headers: Optional[Dict[str, str]] = None) -> OCPAPISpec:
         """
         Register an API for discovery and usage.
         
@@ -74,6 +75,7 @@ class OCPAgent:
             name: Human-readable name for the API or registry API name
             spec_url: URL to OpenAPI specification (optional if using registry lookup)
             base_url: Optional override for API base URL
+            headers: Optional headers for authenticated requests to this API
             
         Returns:
             Discovered API specification with available tools
@@ -107,8 +109,14 @@ class OCPAgent:
             api_spec = self.registry.get_api_spec(name, base_url)
             source = f"{REGISTRY_SOURCE_PREFIX}:{name}"
         
-        # Store API spec in memory
+        # Store API spec in memory and set name
+        api_spec.name = name
         self.known_apis[name] = api_spec
+        
+        # Create wrapped client if headers provided
+        if headers:
+            from .http_client import _wrap_api
+            self.api_clients[name] = _wrap_api(api_spec.base_url, self.context, headers)
         
         # Cache to disk (if enabled)
         if self.storage:
@@ -198,7 +206,7 @@ class OCPAgent:
         return matches
     
     def call_tool(self, tool_name: str, parameters: Dict[str, Any] = None, 
-                  api_name: Optional[str] = None) -> requests.Response:
+                  api_name: Optional[str] = None, headers: Optional[Dict[str, str]] = None) -> requests.Response:
         """
         Call a discovered tool with OCP context injection.
         
@@ -206,6 +214,7 @@ class OCPAgent:
             tool_name: Name of the tool to call
             parameters: Parameters for the tool call
             api_name: Optional API name if tool name is ambiguous
+            headers: Optional headers for this specific request (overrides registered headers)
             
         Returns:
             HTTP response from the API call
@@ -233,6 +242,18 @@ class OCPAgent:
         if validation_errors:
             raise ValueError(f"Parameter validation failed: {validation_errors}")
         
+        # Determine HTTP client to use (priority: call_tool headers > registered headers > default)
+        if headers:
+            # Per-call override: create temporary wrapped client
+            from .http_client import _wrap_api
+            client = _wrap_api(api_spec.base_url, self.context, headers)
+        elif api_spec.name and api_spec.name in self.api_clients:
+            # Use registered client with headers
+            client = self.api_clients[api_spec.name]
+        else:
+            # Use default client (no auth)
+            client = self.http_client
+        
         # Build request
         url, request_params = self._build_request(api_spec, tool, parameters)
         
@@ -250,7 +271,7 @@ class OCPAgent:
         
         # Make the request with OCP context enhancement
         try:
-            response = self.http_client.request(tool.method, url, **request_params)
+            response = client.request(tool.method, url, **request_params)
             
             # Log the result
             self.context.add_interaction(

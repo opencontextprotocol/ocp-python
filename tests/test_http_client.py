@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 from ocp_agent.http_client import (
     OCPHTTPClient,
-    wrap_api
+    _wrap_api
 )
 from ocp_agent.context import AgentContext
 from ocp_agent.headers import create_ocp_headers
@@ -242,7 +242,7 @@ class TestOCPHTTPClient:
 
 
 class TestWrapAPI:
-    """Test wrap_api function."""
+    """Test _wrap_api function (internal use only)."""
     
     @pytest.fixture
     def context(self):
@@ -254,7 +254,7 @@ class TestWrapAPI:
             mock_session = Mock()
             mock_session_class.return_value = mock_session
             
-            api_client = wrap_api("https://api.example.com", context)
+            api_client = _wrap_api("https://api.example.com", context)
             
             assert isinstance(api_client, OCPHTTPClient)
             assert api_client.context == context
@@ -267,7 +267,7 @@ class TestWrapAPI:
             mock_session = Mock()
             mock_session_class.return_value = mock_session
             
-            api_client = wrap_api(
+            api_client = _wrap_api(
                 "https://api.github.com", 
                 context,
                 headers={"Authorization": "token ghp_123456"}
@@ -284,7 +284,7 @@ class TestWrapAPI:
             mock_session = Mock()
             mock_session_class.return_value = mock_session
             
-            api_client = wrap_api(
+            api_client = _wrap_api(
                 "https://api.example.com",
                 context, 
                 headers={"Authorization": "Bearer jwt_token_here"}
@@ -299,7 +299,7 @@ class TestWrapAPI:
             mock_session = Mock()
             mock_session_class.return_value = mock_session
             
-            api_client = wrap_api(
+            api_client = _wrap_api(
                 "https://api.example.com",
                 context,
                 headers={"Authorization": "Basic dXNlcjpwYXNz"}
@@ -314,7 +314,7 @@ class TestWrapAPI:
             mock_session = Mock()
             mock_session_class.return_value = mock_session
             
-            api_client = wrap_api(
+            api_client = _wrap_api(
                 "https://api.example.com",
                 context,
                 headers={"Authorization": "token abc123def456"}
@@ -334,7 +334,7 @@ class TestWrapAPI:
                 "Accept": "application/vnd.api+json"
             }
             
-            api_client = wrap_api(
+            api_client = _wrap_api(
                 "https://api.example.com",
                 context,
                 headers=custom_headers
@@ -349,7 +349,7 @@ class TestWrapAPI:
         """Test that base URLs are properly normalized."""
         with patch("requests.Session"):
             # Test trailing slash removal
-            api_client = wrap_api("https://api.example.com/", context)
+            api_client = _wrap_api("https://api.example.com/", context)
             assert api_client.base_url == "https://api.example.com"
     
     def test_wrap_api_relative_url_handling(self, context):
@@ -361,7 +361,7 @@ class TestWrapAPI:
             mock_session.request = Mock(return_value=mock_response)
             mock_session_class.return_value = mock_session
             
-            api_client = wrap_api("https://api.example.com", context)
+            api_client = _wrap_api("https://api.example.com", context)
             
             # Test relative URL
             api_client.request("GET", "/users")
@@ -380,7 +380,7 @@ class TestWrapAPI:
             mock_session.request = Mock(return_value=mock_response)
             mock_session_class.return_value = mock_session
             
-            api_client = wrap_api("https://api.example.com", context)
+            api_client = _wrap_api("https://api.example.com", context)
             
             # Test absolute URL
             api_client.request("POST", "https://other-api.com/webhook")            # Verify URL was passed through unchanged

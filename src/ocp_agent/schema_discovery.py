@@ -44,6 +44,7 @@ class OCPAPISpec:
     description: str
     tools: List[OCPTool]
     raw_spec: Dict[str, Any]
+    name: Optional[str] = None
 
 class OCPSchemaDiscovery:
     """

@@ -404,3 +404,283 @@ class TestOCPAgent:
         )
         
         assert agent.registry.registry_url == "https://custom-registry.com"
+
+
+class TestOCPAgentAuthentication:
+    """Test OCPAgent authentication functionality."""
+    
+    @pytest.fixture
+    def agent(self):
+        """Create a test agent."""
+        return OCPAgent(
+            agent_type="test_agent",
+            user="test_user",
+            enable_cache=False
+        )
+    
+    @pytest.fixture
+    def sample_api_spec(self):
+        """Sample API specification for testing."""
+        tools = [
+            OCPTool(
+                name="get_user",
+                description="Get user info",
+                method="GET",
+                path="/user",
+                parameters={},
+                response_schema={}
+            )
+        ]
+        
+        return OCPAPISpec(
+            title="Auth API",
+            version="1.0.0",
+            base_url="https://api.auth-test.com",
+            description="API requiring authentication",
+            tools=tools,
+            raw_spec={}
+        )
+    
+    @patch('ocp_agent.agent.OCPRegistry')
+    @patch('ocp_agent.http_client._wrap_api')
+    def test_register_api_with_headers(self, mock_wrap_api, mock_registry_class, agent, sample_api_spec):
+        """Test API registration with authentication headers."""
+        # Setup mocks
+        mock_registry = Mock()
+        mock_registry.get_api_spec.return_value = sample_api_spec
+        mock_registry_class.return_value = mock_registry
+        
+        mock_wrapped_client = Mock()
+        mock_wrap_api.return_value = mock_wrapped_client
+        
+        agent = OCPAgent(agent_type="test_agent", enable_cache=False)
+        
+        # Register API with headers
+        headers = {"Authorization": "Bearer token123"}
+        result = agent.register_api("auth_api", headers=headers)
+        
+        # Verify wrapped client was created
+        mock_wrap_api.assert_called_once_with(
+            sample_api_spec.base_url,
+            agent.context,
+            headers
+        )
+        
+        # Verify wrapped client was stored
+        assert "auth_api" in agent.api_clients
+        assert agent.api_clients["auth_api"] == mock_wrapped_client
+        
+        # Verify API spec was registered
+        assert result == sample_api_spec
+        assert "auth_api" in agent.known_apis
+        
+        # Verify name was set on spec
+        assert result.name == "auth_api"
+    
+    @patch('ocp_agent.agent.OCPRegistry')
+    def test_register_api_without_headers(self, mock_registry_class, agent, sample_api_spec):
+        """Test API registration without headers (no wrapped client created)."""
+        mock_registry = Mock()
+        mock_registry.get_api_spec.return_value = sample_api_spec
+        mock_registry_class.return_value = mock_registry
+        
+        agent = OCPAgent(agent_type="test_agent", enable_cache=False)
+        
+        # Register API without headers
+        result = agent.register_api("public_api")
+        
+        # Verify no wrapped client was created
+        assert "public_api" not in agent.api_clients
+        assert len(agent.api_clients) == 0
+        
+        # Verify API was still registered
+        assert result == sample_api_spec
+        assert "public_api" in agent.known_apis
+    
+    @patch('ocp_agent.http_client.OCPHTTPClient.request')
+    def test_call_tool_with_registered_headers(self, mock_request, agent, sample_api_spec):
+        """Test tool calling uses wrapped client when registered with headers."""
+        # Setup API with wrapped client
+        sample_api_spec.name = "auth_api"
+        agent.known_apis["auth_api"] = sample_api_spec
+        
+        mock_wrapped_client = Mock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.reason = "OK"
+        mock_response.ok = True
+        mock_response.content = b'{"user": "test"}'
+        mock_wrapped_client.request.return_value = mock_response
+        agent.api_clients["auth_api"] = mock_wrapped_client
+        
+        # Call tool
+        response = agent.call_tool("get_user")
+        
+        # Verify wrapped client was used (not default http_client)
+        mock_wrapped_client.request.assert_called_once()
+        mock_request.assert_not_called()
+        
+        assert response == mock_response
+    
+    @patch('ocp_agent.http_client.OCPHTTPClient.request')
+    def test_call_tool_without_registered_headers(self, mock_request, agent, sample_api_spec):
+        """Test tool calling uses default client when no headers registered."""
+        sample_api_spec.name = "public_api"
+        agent.known_apis["public_api"] = sample_api_spec
+        
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.reason = "OK"
+        mock_response.ok = True
+        mock_response.content = b'{"data": "test"}'
+        mock_request.return_value = mock_response
+        
+        # Call tool
+        response = agent.call_tool("get_user")
+        
+        # Verify default http_client was used
+        mock_request.assert_called_once()
+        assert response == mock_response
+    
+    @patch('ocp_agent.http_client._wrap_api')
+    def test_call_tool_with_headers_parameter(self, mock_wrap_api, agent, sample_api_spec):
+        """Test tool calling with per-call headers parameter (overrides registered headers)."""
+        sample_api_spec.name = "api"
+        agent.known_apis["api"] = sample_api_spec
+        
+        # Setup wrapped clients
+        registered_client = Mock()
+        agent.api_clients["api"] = registered_client
+        
+        per_call_client = Mock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.reason = "OK"
+        mock_response.ok = True
+        mock_response.content = b'{"result": "ok"}'
+        per_call_client.request.return_value = mock_response
+        mock_wrap_api.return_value = per_call_client
+        
+        # Call tool with per-call headers
+        call_headers = {"Authorization": "Bearer different_token"}
+        response = agent.call_tool("get_user", headers=call_headers)
+        
+        # Verify new wrapped client was created for this call
+        mock_wrap_api.assert_called_once_with(
+            sample_api_spec.base_url,
+            agent.context,
+            call_headers
+        )
+        
+        # Verify per-call client was used (not registered client)
+        per_call_client.request.assert_called_once()
+        registered_client.request.assert_not_called()
+        
+        assert response == mock_response
+    
+    @patch('ocp_agent.http_client._wrap_api')
+    @patch('ocp_agent.http_client.OCPHTTPClient.request')
+    def test_call_tool_client_priority(self, mock_default_request, mock_wrap_api, agent, sample_api_spec):
+        """Test client selection priority: call_tool headers > registered headers > default."""
+        sample_api_spec.name = "api"
+        agent.known_apis["api"] = sample_api_spec
+        
+        # Setup all three types of clients
+        registered_client = Mock()
+        agent.api_clients["api"] = registered_client
+        
+        per_call_client = Mock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.reason = "OK"
+        mock_response.ok = True
+        mock_response.content = b'{}'
+        per_call_client.request.return_value = mock_response
+        registered_client.request.return_value = mock_response
+        mock_default_request.return_value = mock_response
+        mock_wrap_api.return_value = per_call_client
+        
+        # Test 1: With call_tool headers (highest priority)
+        agent.call_tool("get_user", headers={"Authorization": "Bearer call"})
+        assert mock_wrap_api.called
+        assert per_call_client.request.called
+        assert not registered_client.request.called
+        assert not mock_default_request.called
+        
+        # Reset mocks
+        mock_wrap_api.reset_mock()
+        per_call_client.request.reset_mock()
+        registered_client.request.reset_mock()
+        mock_default_request.reset_mock()
+        
+        # Test 2: Without call_tool headers, with registered headers (medium priority)
+        agent.call_tool("get_user")
+        assert not mock_wrap_api.called
+        assert not per_call_client.request.called
+        assert registered_client.request.called
+        assert not mock_default_request.called
+        
+        # Reset for Test 3
+        registered_client.request.reset_mock()
+        mock_default_request.reset_mock()
+        
+        # Test 3: Without any headers (default client, lowest priority)
+        agent.api_clients.pop("api")  # Remove registered client
+        agent.call_tool("get_user")
+        assert not registered_client.request.called
+        assert mock_default_request.called
+    
+    @patch('ocp_agent.agent.OCPRegistry')
+    def test_api_spec_name_field_set(self, mock_registry_class, agent, sample_api_spec):
+        """Test that api_spec.name field is set during registration."""
+        mock_registry = Mock()
+        mock_registry.get_api_spec.return_value = sample_api_spec
+        mock_registry_class.return_value = mock_registry
+        
+        agent = OCPAgent(agent_type="test_agent", enable_cache=False)
+        
+        # Initially spec has no name
+        assert sample_api_spec.name is None
+        
+        # Register API
+        result = agent.register_api("my_api")
+        
+        # Verify name was set
+        assert result.name == "my_api"
+        assert agent.known_apis["my_api"].name == "my_api"
+    
+    @patch('ocp_agent.agent.OCPRegistry')
+    @patch('ocp_agent.http_client._wrap_api')
+    def test_register_api_with_different_auth_types(self, mock_wrap_api, mock_registry_class, agent, sample_api_spec):
+        """Test API registration with different authentication header types."""
+        mock_registry = Mock()
+        mock_registry.get_api_spec.return_value = sample_api_spec
+        mock_registry_class.return_value = mock_registry
+        
+        mock_wrapped_client = Mock()
+        mock_wrap_api.return_value = mock_wrapped_client
+        
+        agent = OCPAgent(agent_type="test_agent", enable_cache=False)
+        
+        # Test Bearer token
+        agent.register_api("api1", headers={"Authorization": "Bearer jwt_token"})
+        assert mock_wrap_api.call_args[0][2]["Authorization"] == "Bearer jwt_token"
+        
+        # Test API key
+        mock_wrap_api.reset_mock()
+        agent.register_api("api2", headers={"X-API-Key": "secret_key"})
+        assert mock_wrap_api.call_args[0][2]["X-API-Key"] == "secret_key"
+        
+        # Test Basic auth
+        mock_wrap_api.reset_mock()
+        agent.register_api("api3", headers={"Authorization": "Basic dXNlcjpwYXNz"})
+        assert mock_wrap_api.call_args[0][2]["Authorization"] == "Basic dXNlcjpwYXNz"
+        
+        # Test multiple headers
+        mock_wrap_api.reset_mock()
+        multi_headers = {
+            "Authorization": "Bearer token",
+            "X-Custom-Header": "value"
+        }
+        agent.register_api("api4", headers=multi_headers)
+        assert mock_wrap_api.call_args[0][2] == multi_headers
