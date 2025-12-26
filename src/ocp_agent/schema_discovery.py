@@ -238,7 +238,7 @@ class OCPSchemaDiscovery:
         # Get description
         description = operation.get('summary', '') or operation.get('description', '')
         if not description:
-            description = f"{method} {path}"
+            description = "No description provided"
         
         # Parse parameters
         parameters = self._parse_parameters(operation.get('parameters', []))
