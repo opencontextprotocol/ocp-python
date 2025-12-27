@@ -101,24 +101,28 @@ class OCPSchemaDiscovery:
             raise SchemaDiscoveryError(f"Failed to discover API: {e}")
     
     def _fetch_spec(self, spec_url: str) -> Dict[str, Any]:
-        """Fetch OpenAPI specification from URL and resolve $refs"""
+        """Fetch OpenAPI specification from URL"""
         try:
             response = requests.get(spec_url, timeout=DEFAULT_SPEC_TIMEOUT)
             response.raise_for_status()
-            spec_data = response.json()
-            
-            # Resolve all internal $ref references
-            return self._resolve_refs(spec_data)
+            return response.json()
         except Exception as e:
             raise SchemaDiscoveryError(f"Failed to fetch OpenAPI spec from {spec_url}: {e}")
     
-    def _resolve_refs(self, obj: Any, root: Optional[Dict[str, Any]] = None, resolution_stack: Optional[List[str]] = None) -> Any:
+    def _resolve_refs(
+        self, 
+        obj: Any, 
+        root: Optional[Dict[str, Any]] = None, 
+        resolution_stack: Optional[List[str]] = None,
+        memo: Optional[Dict[str, Any]] = None
+    ) -> Any:
         """Recursively resolve $ref references in OpenAPI spec
         
         Args:
             obj: Current object being processed (dict, list, or primitive)
             root: Root spec document for looking up references
             resolution_stack: Stack of refs currently being resolved (for circular detection)
+            memo: Memoization cache for already-resolved refs
         
         Returns:
             Object with all resolvable $refs replaced by their definitions
@@ -128,6 +132,8 @@ class OCPSchemaDiscovery:
             root = obj
         if resolution_stack is None:
             resolution_stack = []
+        if memo is None:
+            memo = {}
         
         # Handle dict objects
         if isinstance(obj, dict):
@@ -139,10 +145,16 @@ class OCPSchemaDiscovery:
                 if not ref_path.startswith('#/'):
                     return obj
                 
+                # Check memo cache first
+                if ref_path in memo:
+                    return memo[ref_path]
+                
                 # Check for circular reference
                 if ref_path in resolution_stack:
                     # Return a placeholder to break the cycle
-                    return {'type': 'object', 'description': 'Circular reference'}
+                    placeholder = {'type': 'object', 'description': 'Circular reference'}
+                    memo[ref_path] = placeholder
+                    return placeholder
                 
                 # Resolve the reference
                 try:
@@ -150,19 +162,23 @@ class OCPSchemaDiscovery:
                     if resolved is not None:
                         # Recursively resolve the resolved object with updated stack
                         new_stack = resolution_stack + [ref_path]
-                        return self._resolve_refs(resolved, root, new_stack)
+                        result = self._resolve_refs(resolved, root, new_stack, memo)
+                        memo[ref_path] = result
+                        return result
                 except Exception:
                     # If lookup fails, return a placeholder
-                    return {'type': 'object', 'description': 'Unresolved reference'}
+                    placeholder = {'type': 'object', 'description': 'Unresolved reference'}
+                    memo[ref_path] = placeholder
+                    return placeholder
                 
                 return obj
             
             # Not a $ref, recursively process all values
-            return {k: self._resolve_refs(v, root, resolution_stack) for k, v in obj.items()}
+            return {k: self._resolve_refs(v, root, resolution_stack, memo) for k, v in obj.items()}
         
         # Handle list objects
         elif isinstance(obj, list):
-            return [self._resolve_refs(item, root, resolution_stack) for item in obj]
+            return [self._resolve_refs(item, root, resolution_stack, memo) for item in obj]
         
         # Primitives pass through unchanged
         return obj
@@ -211,6 +227,9 @@ class OCPSchemaDiscovery:
             else:
                 base_url = ''
         
+        # Create memoization cache for $ref resolution
+        memo_cache = {}
+        
         # Parse paths into tools
         tools = []
         paths = spec_data.get('paths', {})
@@ -219,7 +238,7 @@ class OCPSchemaDiscovery:
             for method, operation in path_item.items():
                 if method.lower() in SUPPORTED_HTTP_METHODS:
                     tool = self._create_tool_from_operation(
-                        path, method.upper(), operation
+                        path, method.upper(), operation, spec_data, memo_cache
                     )
                     if tool:
                         tools.append(tool)
@@ -292,7 +311,7 @@ class OCPSchemaDiscovery:
             
         return True
     
-    def _create_tool_from_operation(self, path: str, method: str, operation: Dict[str, Any]) -> Optional[OCPTool]:
+    def _create_tool_from_operation(self, path: str, method: str, operation: Dict[str, Any], spec_data: Dict[str, Any], memo_cache: Dict[str, Any]) -> Optional[OCPTool]:
         """Create OCP tool from OpenAPI operation"""
         
         # Generate tool name with proper validation and fallback logic
@@ -325,15 +344,15 @@ class OCPSchemaDiscovery:
             description = "No description provided"
         
         # Parse parameters
-        parameters = self._parse_parameters(operation.get('parameters', []))
+        parameters = self._parse_parameters(operation.get('parameters', []), spec_data, memo_cache)
         
         # Add request body parameters for POST/PUT/PATCH
         if method in ['POST', 'PUT', 'PATCH'] and 'requestBody' in operation:
-            body_params = self._parse_request_body(operation['requestBody'])
+            body_params = self._parse_request_body(operation['requestBody'], spec_data, memo_cache)
             parameters.update(body_params)
         
         # Parse response schema
-        response_schema = self._parse_responses(operation.get('responses', {}))
+        response_schema = self._parse_responses(operation.get('responses', {}), spec_data, memo_cache)
         
         # Get tags
         tags = operation.get('tags', [])
@@ -349,7 +368,7 @@ class OCPSchemaDiscovery:
             tags=tags
         )
     
-    def _parse_parameters(self, parameters: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _parse_parameters(self, parameters: List[Dict[str, Any]], spec_data: Dict[str, Any], memo_cache: Dict[str, Any]) -> Dict[str, Any]:
         """Parse OpenAPI parameters into tool parameter schema"""
         parsed_params = {}
         
@@ -368,6 +387,8 @@ class OCPSchemaDiscovery:
             # Extract type from schema
             schema = param.get('schema', {})
             if schema:
+                # Resolve any $refs in the parameter schema
+                schema = self._resolve_refs(schema, spec_data, [], memo_cache)
                 param_schema['type'] = schema.get('type', 'string')
                 if 'enum' in schema:
                     param_schema['enum'] = schema['enum']
@@ -378,7 +399,7 @@ class OCPSchemaDiscovery:
         
         return parsed_params
     
-    def _parse_request_body(self, request_body: Dict[str, Any]) -> Dict[str, Any]:
+    def _parse_request_body(self, request_body: Dict[str, Any], spec_data: Dict[str, Any], memo_cache: Dict[str, Any]) -> Dict[str, Any]:
         """Parse request body into parameters"""
         parameters = {}
         
@@ -388,6 +409,9 @@ class OCPSchemaDiscovery:
         json_content = content.get('application/json', {})
         if json_content and 'schema' in json_content:
             schema = json_content['schema']
+            
+            # Resolve any $refs in the request body schema
+            schema = self._resolve_refs(schema, spec_data, [], memo_cache)
             
             # Handle object schemas
             if schema.get('type') == 'object':
@@ -407,7 +431,7 @@ class OCPSchemaDiscovery:
         
         return parameters
     
-    def _parse_responses(self, responses: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _parse_responses(self, responses: Dict[str, Any], spec_data: Dict[str, Any], memo_cache: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Parse response schemas"""
         # Look for successful response (200, 201, etc.)
         for status_code, response in responses.items():
@@ -416,7 +440,9 @@ class OCPSchemaDiscovery:
                 json_content = content.get('application/json', {})
                 
                 if json_content and 'schema' in json_content:
-                    return json_content['schema']
+                    schema = json_content['schema']
+                    # Resolve any $refs in the response schema
+                    return self._resolve_refs(schema, spec_data, [], memo_cache)
         
         return None
     
