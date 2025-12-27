@@ -566,6 +566,144 @@ class TestOCPSchemaDiscovery:
         assert "age" in doc
         assert "required" in doc.lower()
         assert "optional" in doc.lower()
+    
+    @patch('ocp_agent.schema_discovery.requests.get')
+    def test_discover_api_with_refs(self, mock_get, discovery):
+        """Test that $ref references are resolved in response schemas."""
+        openapi_spec_with_refs = {
+            "openapi": "3.0.0",
+            "info": {"title": "Test API", "version": "1.0.0"},
+            "servers": [{"url": "https://api.example.com"}],
+            "paths": {
+                "/queue": {
+                    "post": {
+                        "operationId": "updateQueue",
+                        "summary": "Update queue",
+                        "responses": {
+                            "200": {
+                                "description": "Queue updated",
+                                "content": {
+                                    "application/json": {
+                                        "schema": {
+                                            "$ref": "#/components/schemas/Queue"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "components": {
+                "schemas": {
+                    "Queue": {
+                        "type": "object",
+                        "properties": {
+                            "sid": {"type": "string"},
+                            "friendly_name": {"type": "string"},
+                            "current_size": {"type": "integer"}
+                        }
+                    }
+                }
+            }
+        }
+        
+        # Mock the HTTP response
+        mock_response = Mock()
+        mock_response.json.return_value = openapi_spec_with_refs
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+        
+        # Discover API
+        api_spec = discovery.discover_api("https://api.example.com/openapi.json")
+        
+        # Should have one tool
+        assert len(api_spec.tools) == 1
+        tool = api_spec.tools[0]
+        
+        # Verify the $ref was resolved
+        assert tool.name == "updateQueue"
+        assert tool.response_schema is not None
+        assert tool.response_schema.get("type") == "object"
+        assert "properties" in tool.response_schema
+        assert "sid" in tool.response_schema["properties"]
+        assert "friendly_name" in tool.response_schema["properties"]
+        assert "current_size" in tool.response_schema["properties"]
+        
+        # Should NOT contain $ref anymore
+        assert "$ref" not in str(tool.response_schema)
+    
+    @patch('ocp_agent.schema_discovery.requests.get')
+    def test_discover_api_with_circular_refs(self, mock_get, discovery):
+        """Test that circular $ref references are handled gracefully."""
+        openapi_spec_with_circular_refs = {
+            "openapi": "3.0.0",
+            "info": {"title": "Test API", "version": "1.0.0"},
+            "servers": [{"url": "https://api.example.com"}],
+            "paths": {
+                "/node": {
+                    "get": {
+                        "operationId": "getNode",
+                        "summary": "Get node",
+                        "responses": {
+                            "200": {
+                                "description": "Node retrieved",
+                                "content": {
+                                    "application/json": {
+                                        "schema": {
+                                            "$ref": "#/components/schemas/Node"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "components": {
+                "schemas": {
+                    "Node": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "children": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/components/schemas/Node"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        # Mock the HTTP response
+        mock_response = Mock()
+        mock_response.json.return_value = openapi_spec_with_circular_refs
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+        
+        # Should not raise an error
+        api_spec = discovery.discover_api("https://api.example.com/openapi.json")
+        
+        # Should have one tool
+        assert len(api_spec.tools) == 1
+        tool = api_spec.tools[0]
+        
+        # Verify the response schema exists and has the expected structure
+        assert tool.response_schema is not None
+        assert tool.response_schema.get("type") == "object"
+        assert "properties" in tool.response_schema
+        assert "id" in tool.response_schema["properties"]
+        assert "children" in tool.response_schema["properties"]
+        
+        # The circular ref in children.items should be replaced with a placeholder
+        children_schema = tool.response_schema["properties"]["children"]
+        assert children_schema.get("type") == "array"
+        assert "items" in children_schema
+        # The circular ref should be broken with a placeholder
+        assert children_schema["items"].get("description") == "Circular reference"
 
 
 class TestOCPTool:

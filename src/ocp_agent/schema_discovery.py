@@ -101,13 +101,97 @@ class OCPSchemaDiscovery:
             raise SchemaDiscoveryError(f"Failed to discover API: {e}")
     
     def _fetch_spec(self, spec_url: str) -> Dict[str, Any]:
-        """Fetch OpenAPI specification from URL"""
+        """Fetch OpenAPI specification from URL and resolve $refs"""
         try:
             response = requests.get(spec_url, timeout=DEFAULT_SPEC_TIMEOUT)
             response.raise_for_status()
-            return response.json()
+            spec_data = response.json()
+            
+            # Resolve all internal $ref references
+            return self._resolve_refs(spec_data)
         except Exception as e:
             raise SchemaDiscoveryError(f"Failed to fetch OpenAPI spec from {spec_url}: {e}")
+    
+    def _resolve_refs(self, obj: Any, root: Optional[Dict[str, Any]] = None, resolution_stack: Optional[List[str]] = None) -> Any:
+        """Recursively resolve $ref references in OpenAPI spec
+        
+        Args:
+            obj: Current object being processed (dict, list, or primitive)
+            root: Root spec document for looking up references
+            resolution_stack: Stack of refs currently being resolved (for circular detection)
+        
+        Returns:
+            Object with all resolvable $refs replaced by their definitions
+        """
+        # Initialize on first call
+        if root is None:
+            root = obj
+        if resolution_stack is None:
+            resolution_stack = []
+        
+        # Handle dict objects
+        if isinstance(obj, dict):
+            # Check if this is a $ref
+            if '$ref' in obj and len(obj) == 1:
+                ref_path = obj['$ref']
+                
+                # Only handle internal refs (start with #/)
+                if not ref_path.startswith('#/'):
+                    return obj
+                
+                # Check for circular reference
+                if ref_path in resolution_stack:
+                    # Return a placeholder to break the cycle
+                    return {'type': 'object', 'description': 'Circular reference'}
+                
+                # Resolve the reference
+                try:
+                    resolved = self._lookup_ref(root, ref_path)
+                    if resolved is not None:
+                        # Recursively resolve the resolved object with updated stack
+                        new_stack = resolution_stack + [ref_path]
+                        return self._resolve_refs(resolved, root, new_stack)
+                except Exception:
+                    # If lookup fails, return a placeholder
+                    return {'type': 'object', 'description': 'Unresolved reference'}
+                
+                return obj
+            
+            # Not a $ref, recursively process all values
+            return {k: self._resolve_refs(v, root, resolution_stack) for k, v in obj.items()}
+        
+        # Handle list objects
+        elif isinstance(obj, list):
+            return [self._resolve_refs(item, root, resolution_stack) for item in obj]
+        
+        # Primitives pass through unchanged
+        return obj
+    
+    def _lookup_ref(self, root: Dict[str, Any], ref_path: str) -> Any:
+        """Look up a reference path in the spec document
+        
+        Args:
+            root: Root spec document
+            ref_path: Reference path like '#/components/schemas/User'
+        
+        Returns:
+            The referenced object, or None if not found
+        """
+        # Remove the leading '#/' and split by '/'
+        if not ref_path.startswith('#/'):
+            return None
+        
+        path_parts = ref_path[2:].split('/')
+        
+        # Navigate through the spec
+        current = root
+        for part in path_parts:
+            if isinstance(current, dict) and part in current:
+                current = current[part]
+            else:
+                return None
+        
+        return current
     
     def _parse_openapi_spec(self, spec_data: Dict[str, Any], base_url_override: Optional[str] = None) -> OCPAPISpec:
         """Parse OpenAPI specification into OCP tools"""
