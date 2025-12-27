@@ -55,7 +55,7 @@ response = github_client.get("/user")
 
 ```python
 agent = OCPAgent(agent_type, user=None, workspace=None, agent_goal=None, registry_url=None, enable_cache=True)
-agent.register_api(name, spec_url=None, base_url=None)
+agent.register_api(name, spec_url=None, base_url=None, headers=None)
 agent.list_tools(api_name=None)
 agent.call_tool(tool_name, parameters=None, api_name=None)
 ```
