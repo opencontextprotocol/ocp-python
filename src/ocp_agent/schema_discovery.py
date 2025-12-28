@@ -114,15 +114,17 @@ class OCPSchemaDiscovery:
         obj: Any, 
         root: Optional[Dict[str, Any]] = None, 
         resolution_stack: Optional[List[str]] = None,
-        memo: Optional[Dict[str, Any]] = None
+        memo: Optional[Dict[str, Any]] = None,
+        inside_polymorphic_keyword: bool = False
     ) -> Any:
-        """Recursively resolve $ref references in OpenAPI spec
+        """Recursively resolve $ref references in OpenAPI spec with polymorphic keyword handling
         
         Args:
             obj: Current object being processed (dict, list, or primitive)
             root: Root spec document for looking up references
             resolution_stack: Stack of refs currently being resolved (for circular detection)
             memo: Memoization cache for already-resolved refs
+            inside_polymorphic_keyword: True if currently inside anyOf/oneOf/allOf
         
         Returns:
             Object with all resolvable $refs replaced by their definitions
@@ -137,6 +139,29 @@ class OCPSchemaDiscovery:
         
         # Handle dict objects
         if isinstance(obj, dict):
+            # Check for polymorphic keywords - process with flag set
+            if 'anyOf' in obj:
+                result = {'anyOf': [self._resolve_refs(item, root, resolution_stack, memo, inside_polymorphic_keyword=True) for item in obj['anyOf']]}
+                # Include other keys if present
+                for k, v in obj.items():
+                    if k != 'anyOf':
+                        result[k] = self._resolve_refs(v, root, resolution_stack, memo, inside_polymorphic_keyword)
+                return result
+            
+            if 'oneOf' in obj:
+                result = {'oneOf': [self._resolve_refs(item, root, resolution_stack, memo, inside_polymorphic_keyword=True) for item in obj['oneOf']]}
+                for k, v in obj.items():
+                    if k != 'oneOf':
+                        result[k] = self._resolve_refs(v, root, resolution_stack, memo, inside_polymorphic_keyword)
+                return result
+            
+            if 'allOf' in obj:
+                result = {'allOf': [self._resolve_refs(item, root, resolution_stack, memo, inside_polymorphic_keyword=True) for item in obj['allOf']]}
+                for k, v in obj.items():
+                    if k != 'allOf':
+                        result[k] = self._resolve_refs(v, root, resolution_stack, memo, inside_polymorphic_keyword)
+                return result
+            
             # Check if this is a $ref
             if '$ref' in obj and len(obj) == 1:
                 ref_path = obj['$ref']
@@ -145,7 +170,20 @@ class OCPSchemaDiscovery:
                 if not ref_path.startswith('#/'):
                     return obj
                 
-                # Check memo cache first
+                # If inside polymorphic keyword, check if ref points to an object
+                if inside_polymorphic_keyword:
+                    try:
+                        resolved = self._lookup_ref(root, ref_path)
+                        if resolved is not None:
+                            # Check if it's an object schema
+                            if resolved.get('type') == 'object' or 'properties' in resolved:
+                                # Keep the $ref unresolved for object schemas
+                                return obj
+                    except Exception:
+                        # If lookup fails, keep the ref
+                        return obj
+                
+                # Check memo cache
                 if ref_path in memo:
                     return memo[ref_path]
                 
@@ -162,7 +200,7 @@ class OCPSchemaDiscovery:
                     if resolved is not None:
                         # Recursively resolve the resolved object with updated stack
                         new_stack = resolution_stack + [ref_path]
-                        result = self._resolve_refs(resolved, root, new_stack, memo)
+                        result = self._resolve_refs(resolved, root, new_stack, memo, inside_polymorphic_keyword)
                         memo[ref_path] = result
                         return result
                 except Exception:
@@ -174,11 +212,11 @@ class OCPSchemaDiscovery:
                 return obj
             
             # Not a $ref, recursively process all values
-            return {k: self._resolve_refs(v, root, resolution_stack, memo) for k, v in obj.items()}
+            return {k: self._resolve_refs(v, root, resolution_stack, memo, inside_polymorphic_keyword) for k, v in obj.items()}
         
         # Handle list objects
         elif isinstance(obj, list):
-            return [self._resolve_refs(item, root, resolution_stack, memo) for item in obj]
+            return [self._resolve_refs(item, root, resolution_stack, memo, inside_polymorphic_keyword) for item in obj]
         
         # Primitives pass through unchanged
         return obj

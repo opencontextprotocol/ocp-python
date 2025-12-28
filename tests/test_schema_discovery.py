@@ -704,6 +704,114 @@ class TestOCPSchemaDiscovery:
         assert "items" in children_schema
         # The circular ref should be broken with a placeholder
         assert children_schema["items"].get("description") == "Circular reference"
+    
+    @patch('ocp_agent.schema_discovery.requests.get')
+    def test_discover_api_with_polymorphic_keywords(self, mock_get, discovery):
+        """Test that $refs inside anyOf/oneOf/allOf pointing to objects are kept unresolved."""
+        openapi_spec_with_polymorphic = {
+            "openapi": "3.0.0",
+            "info": {"title": "Test API", "version": "1.0.0"},
+            "servers": [{"url": "https://api.example.com"}],
+            "paths": {
+                "/payment": {
+                    "get": {
+                        "operationId": "getPayment",
+                        "summary": "Get payment",
+                        "responses": {
+                            "200": {
+                                "description": "Payment retrieved",
+                                "content": {
+                                    "application/json": {
+                                        "schema": {
+                                            "$ref": "#/components/schemas/Payment"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "components": {
+                "schemas": {
+                    "Payment": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "amount": {"type": "integer"},
+                            "status": {
+                                "anyOf": [
+                                    {"type": "string"},
+                                    {"type": "null"}
+                                ]
+                            },
+                            "source": {
+                                "anyOf": [
+                                    {"$ref": "#/components/schemas/Card"},
+                                    {"$ref": "#/components/schemas/BankAccount"},
+                                    {"$ref": "#/components/schemas/Wallet"}
+                                ]
+                            }
+                        }
+                    },
+                    "Card": {
+                        "type": "object",
+                        "properties": {
+                            "brand": {"type": "string"},
+                            "last4": {"type": "string"}
+                        }
+                    },
+                    "BankAccount": {
+                        "type": "object",
+                        "properties": {
+                            "routing_number": {"type": "string"},
+                            "account_number": {"type": "string"}
+                        }
+                    },
+                    "Wallet": {
+                        "type": "object",
+                        "properties": {
+                            "provider": {"type": "string"},
+                            "wallet_id": {"type": "string"}
+                        }
+                    }
+                }
+            }
+        }
+        
+        # Mock the HTTP response
+        mock_response = Mock()
+        mock_response.json.return_value = openapi_spec_with_polymorphic
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+        
+        # Discover API
+        api_spec = discovery.discover_api("https://api.example.com/openapi.json")
+        
+        # Should have one tool
+        assert len(api_spec.tools) == 1
+        tool = api_spec.tools[0]
+        
+        # Verify the response schema exists
+        assert tool.response_schema is not None
+        assert tool.response_schema.get("type") == "object"
+        assert "properties" in tool.response_schema
+        
+        # Status field with primitive anyOf should be resolved
+        status_schema = tool.response_schema["properties"]["status"]
+        assert "anyOf" in status_schema
+        assert status_schema["anyOf"][0].get("type") == "string"
+        assert status_schema["anyOf"][1].get("type") == "null"
+        # Should not contain any $refs
+        assert "$ref" not in str(status_schema)
+        
+        # Source field with object $refs in anyOf should keep the refs unresolved
+        source_schema = tool.response_schema["properties"]["source"]
+        assert "anyOf" in source_schema
+        # The $refs to object schemas should be preserved
+        assert source_schema["anyOf"][0] == {"$ref": "#/components/schemas/Card"}
+        assert source_schema["anyOf"][1] == {"$ref": "#/components/schemas/BankAccount"}
+        assert source_schema["anyOf"][2] == {"$ref": "#/components/schemas/Wallet"}
 
 
 class TestOCPTool:
