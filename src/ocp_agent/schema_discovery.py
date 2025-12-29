@@ -12,6 +12,7 @@ import logging
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from urllib.parse import urljoin
+from openapi_spec_validator import validate
 
 from .errors import SchemaDiscoveryError
 
@@ -75,8 +76,9 @@ class OCPSchemaDiscovery:
             return self.cached_specs[spec_url]
 
         try:
-            # Fetch and parse OpenAPI spec
+            # Fetch, validate, and parse OpenAPI spec
             spec_data = self._fetch_spec(spec_url)
+            self._validate_spec(spec_data)
             parsed_spec = self._parse_openapi_spec(spec_data, base_url)
             
             # Cache for future use
@@ -108,6 +110,13 @@ class OCPSchemaDiscovery:
             return response.json()
         except Exception as e:
             raise SchemaDiscoveryError(f"Failed to fetch OpenAPI spec from {spec_url}: {e}")
+    
+    def _validate_spec(self, spec_data: Dict[str, Any]) -> None:
+        """Validate OpenAPI specification structure and version compatibility"""
+        try:
+            validate(spec_data)
+        except Exception as e:
+            raise SchemaDiscoveryError(f"Invalid OpenAPI specification: {e}")
     
     def _resolve_refs(
         self, 

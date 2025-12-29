@@ -78,6 +78,23 @@ class TestOCPSchemaDiscovery:
                                     }
                                 }
                             }
+                        },
+                        "responses": {
+                            "201": {
+                                "description": "User created",
+                                "content": {
+                                    "application/json": {
+                                        "schema": {
+                                            "type": "object",
+                                            "properties": {
+                                                "id": {"type": "integer"},
+                                                "name": {"type": "string"},
+                                                "email": {"type": "string"}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 },
@@ -92,7 +109,24 @@ class TestOCPSchemaDiscovery:
                                 "schema": {"type": "string"},
                                 "required": True
                             }
-                        ]
+                        ],
+                        "responses": {
+                            "200": {
+                                "description": "User details",
+                                "content": {
+                                    "application/json": {
+                                        "schema": {
+                                            "type": "object",
+                                            "properties": {
+                                                "id": {"type": "integer"},
+                                                "name": {"type": "string"},
+                                                "email": {"type": "string"}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -263,7 +297,7 @@ class TestOCPSchemaDiscovery:
         assert not get_users.parameters["limit"]["required"]
         assert get_users.response_schema is not None
         assert get_users.response_schema["type"] == "array"
-        
+    
         # Check POST /users tool
         post_users = next((t for t in tools if t.name == "postUsers"), None)
         assert post_users is not None
@@ -273,7 +307,8 @@ class TestOCPSchemaDiscovery:
         assert "email" in post_users.parameters
         assert post_users.parameters["name"]["required"]
         assert post_users.parameters["email"]["required"]
-        assert post_users.response_schema is None
+        assert post_users.response_schema is not None
+        assert post_users.response_schema["type"] == "object"
         
         # Check GET /users/{id} tool
         get_users_id = next((t for t in tools if t.name == "getUsersId"), None)
@@ -281,10 +316,11 @@ class TestOCPSchemaDiscovery:
         assert get_users_id.method == "GET"
         assert get_users_id.path == "/users/{id}"
         assert "id" in get_users_id.parameters
-        assert get_users_id.parameters["id"]["location"] == "path"
         assert get_users_id.parameters["id"]["required"]
-        assert get_users_id.response_schema is None
-    
+        assert get_users_id.parameters["id"]["location"] == "path"
+        assert get_users_id.response_schema is not None
+        assert get_users_id.response_schema["type"] == "object"
+
     def test_normalize_tool_name_slash_separators(self, discovery):
         """Test normalization of operationId with slash separators."""
         assert discovery._normalize_tool_name("meta/root") == "metaRoot"
@@ -742,7 +778,7 @@ class TestOCPSchemaDiscovery:
                             "status": {
                                 "anyOf": [
                                     {"type": "string"},
-                                    {"type": "null"}
+                                    {"type": "integer"}
                                 ]
                             },
                             "source": {
@@ -797,11 +833,11 @@ class TestOCPSchemaDiscovery:
         assert tool.response_schema.get("type") == "object"
         assert "properties" in tool.response_schema
         
-        # Status field with primitive anyOf should be resolved
+        # Status field with primitive anyOf (string/integer) should be resolved
         status_schema = tool.response_schema["properties"]["status"]
         assert "anyOf" in status_schema
-        assert status_schema["anyOf"][0].get("type") == "string"
-        assert status_schema["anyOf"][1].get("type") == "null"
+        assert status_schema["anyOf"][0] == {"type": "string"}
+        assert status_schema["anyOf"][1] == {"type": "integer"}
         # Should not contain any $refs
         assert "$ref" not in str(status_schema)
         
