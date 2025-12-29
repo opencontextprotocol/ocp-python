@@ -57,6 +57,7 @@ class OCPSchemaDiscovery:
     
     def __init__(self):
         self.cached_specs: Dict[str, OCPAPISpec] = {}
+        self._spec_version: Optional[str] = None
     
     def discover_api(self, spec_url: str, base_url: Optional[str] = None, include_resources: Optional[List[str]] = None, path_prefix: Optional[str] = None) -> OCPAPISpec:
         """
@@ -76,9 +77,10 @@ class OCPSchemaDiscovery:
             return self.cached_specs[spec_url]
 
         try:
-            # Fetch, validate, and parse OpenAPI spec
+            # Fetch, validate, detect version, and parse OpenAPI spec
             spec_data = self._fetch_spec(spec_url)
             self._validate_spec(spec_data)
+            self._spec_version = self._detect_spec_version(spec_data)
             parsed_spec = self._parse_openapi_spec(spec_data, base_url)
             
             # Cache for future use
@@ -117,6 +119,29 @@ class OCPSchemaDiscovery:
             validate(spec_data)
         except Exception as e:
             raise SchemaDiscoveryError(f"Invalid OpenAPI specification: {e}")
+    
+    def _detect_spec_version(self, spec: Dict[str, Any]) -> str:
+        """Detect OpenAPI/Swagger version from spec.
+        
+        Returns:
+            Version string: 'swagger_2', 'openapi_3.0', 'openapi_3.1', 'openapi_3.2'
+        """
+        if "swagger" in spec:
+            swagger_version = spec["swagger"]
+            if swagger_version.startswith("2."):
+                return "swagger_2"
+            raise SchemaDiscoveryError(f"Unsupported Swagger version: {swagger_version}")
+        elif "openapi" in spec:
+            openapi_version = spec["openapi"]
+            if openapi_version.startswith("3.0"):
+                return "openapi_3.0"
+            elif openapi_version.startswith("3.1"):
+                return "openapi_3.1"
+            elif openapi_version.startswith("3.2"):
+                return "openapi_3.2"
+            raise SchemaDiscoveryError(f"Unsupported OpenAPI version: {openapi_version}")
+        
+        raise SchemaDiscoveryError("Unable to detect spec version: missing 'swagger' or 'openapi' field")
     
     def _resolve_refs(
         self, 
@@ -265,14 +290,10 @@ class OCPSchemaDiscovery:
         version = info.get('version', DEFAULT_API_VERSION)
         description = info.get('description', '')
         
-        # Determine base URL
+        # Determine base URL (version-specific)
         base_url = base_url_override
         if not base_url:
-            servers = spec_data.get('servers', [])
-            if servers:
-                base_url = servers[0].get('url', '')
-            else:
-                base_url = ''
+            base_url = self._extract_base_url(spec_data)
         
         # Create memoization cache for $ref resolution
         memo_cache = {}
@@ -298,6 +319,25 @@ class OCPSchemaDiscovery:
             tools=tools,
             raw_spec=spec_data
         )
+    
+    def _extract_base_url(self, spec_data: Dict[str, Any]) -> str:
+        """Extract base URL from spec (version-aware)."""
+        if self._spec_version == "swagger_2":
+            # Swagger 2.0: construct from host, basePath, and schemes
+            schemes = spec_data.get('schemes', ['https'])
+            host = spec_data.get('host', '')
+            base_path = spec_data.get('basePath', '')
+            
+            if host:
+                scheme = schemes[0] if schemes else 'https'
+                return f"{scheme}://{host}{base_path}"
+            return ''
+        else:
+            # OpenAPI 3.x: use servers array
+            servers = spec_data.get('servers', [])
+            if servers:
+                return servers[0].get('url', '')
+            return ''
     
     def _normalize_tool_name(self, name: str) -> str:
         """Normalize tool name to camelCase, removing special characters.
@@ -390,13 +430,21 @@ class OCPSchemaDiscovery:
         if not description:
             description = "No description provided"
         
-        # Parse parameters
+        # Parse parameters (version-aware)
         parameters = self._parse_parameters(operation.get('parameters', []), spec_data, memo_cache)
         
-        # Add request body parameters for POST/PUT/PATCH
-        if method in ['POST', 'PUT', 'PATCH'] and 'requestBody' in operation:
-            body_params = self._parse_request_body(operation['requestBody'], spec_data, memo_cache)
-            parameters.update(body_params)
+        # Add request body parameters (version-specific)
+        if method in ['POST', 'PUT', 'PATCH']:
+            if self._spec_version == "swagger_2":
+                # Swagger 2.0: body is in parameters array
+                for param in operation.get('parameters', []):
+                    body_params = self._parse_swagger2_body_parameter(param, spec_data, memo_cache)
+                    parameters.update(body_params)
+            else:
+                # OpenAPI 3.x: separate requestBody field
+                if 'requestBody' in operation:
+                    body_params = self._parse_openapi3_request_body(operation['requestBody'], spec_data, memo_cache)
+                    parameters.update(body_params)
         
         # Parse response schema
         response_schema = self._parse_responses(operation.get('responses', {}), spec_data, memo_cache)
@@ -446,8 +494,8 @@ class OCPSchemaDiscovery:
         
         return parsed_params
     
-    def _parse_request_body(self, request_body: Dict[str, Any], spec_data: Dict[str, Any], memo_cache: Dict[str, Any]) -> Dict[str, Any]:
-        """Parse request body into parameters"""
+    def _parse_openapi3_request_body(self, request_body: Dict[str, Any], spec_data: Dict[str, Any], memo_cache: Dict[str, Any]) -> Dict[str, Any]:
+        """Parse request body into parameters (OpenAPI 3.x only)"""
         parameters = {}
         
         content = request_body.get('content', {})
@@ -478,18 +526,54 @@ class OCPSchemaDiscovery:
         
         return parameters
     
+    def _parse_swagger2_body_parameter(self, param: Dict[str, Any], spec_data: Dict[str, Any], memo_cache: Dict[str, Any]) -> Dict[str, Any]:
+        """Parse Swagger 2.0 body parameter into parameters."""
+        parameters = {}
+        
+        if param.get('in') == 'body' and 'schema' in param:
+            schema = param['schema']
+            
+            # Resolve any $refs in the body schema
+            schema = self._resolve_refs(schema, spec_data, [], memo_cache)
+            
+            # Handle object schemas
+            if schema.get('type') == 'object':
+                properties = schema.get('properties', {})
+                required_fields = schema.get('required', [])
+                
+                for prop_name, prop_schema in properties.items():
+                    parameters[prop_name] = {
+                        'description': prop_schema.get('description', ''),
+                        'required': prop_name in required_fields,
+                        'location': 'body',
+                        'type': prop_schema.get('type', 'string')
+                    }
+                    
+                    if 'enum' in prop_schema:
+                        parameters[prop_name]['enum'] = prop_schema['enum']
+        
+        return parameters
+    
     def _parse_responses(self, responses: Dict[str, Any], spec_data: Dict[str, Any], memo_cache: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Parse response schemas"""
+        """Parse response schemas (version-aware)"""
         # Look for successful response (200, 201, etc.)
         for status_code, response in responses.items():
             if str(status_code).startswith('2'):  # 2xx success codes
-                content = response.get('content', {})
-                json_content = content.get('application/json', {})
-                
-                if json_content and 'schema' in json_content:
-                    schema = json_content['schema']
-                    # Resolve any $refs in the response schema
-                    return self._resolve_refs(schema, spec_data, [], memo_cache)
+                if self._spec_version == "swagger_2":
+                    # Swagger 2.0: schema is directly in response
+                    if 'schema' in response:
+                        schema = response['schema']
+                        # Resolve any $refs in the response schema
+                        return self._resolve_refs(schema, spec_data, [], memo_cache)
+                else:
+                    # OpenAPI 3.x: schema is in content.application/json
+                    content = response.get('content', {})
+                    json_content = content.get('application/json', {})
+                    
+                    if json_content and 'schema' in json_content:
+                        schema = json_content['schema']
+                        # Resolve any $refs in the response schema
+                        return self._resolve_refs(schema, spec_data, [], memo_cache)
         
         return None
     

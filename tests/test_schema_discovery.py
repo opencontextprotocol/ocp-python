@@ -899,6 +899,225 @@ class TestOCPAPISpec:
         assert api_spec.tools[1].name == "tool2"
 
 
+class TestSwagger2Support:
+    """Test Swagger 2.0 specification support."""
+    
+    @pytest.fixture
+    def discovery(self):
+        """Create a schema discovery instance."""
+        return OCPSchemaDiscovery()
+    
+    @pytest.fixture
+    def swagger2_spec(self):
+        """Basic Swagger 2.0 specification."""
+        return {
+            "swagger": "2.0",
+            "info": {
+                "title": "Swagger 2.0 API",
+                "version": "1.0.0",
+                "description": "A test API using Swagger 2.0"
+            },
+            "host": "api.example.com",
+            "basePath": "/v1",
+            "schemes": ["https"],
+            "paths": {
+                "/users": {
+                    "get": {
+                        "operationId": "getUsers",
+                        "summary": "List users",
+                        "description": "Get a list of all users",
+                        "parameters": [
+                            {
+                                "name": "limit",
+                                "in": "query",
+                                "type": "integer",
+                                "required": False
+                            }
+                        ],
+                        "responses": {
+                            "200": {
+                                "description": "List of users",
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "id": {"type": "integer"},
+                                            "name": {"type": "string"},
+                                            "email": {"type": "string"}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "post": {
+                        "operationId": "createUser",
+                        "summary": "Create user",
+                        "description": "Create a new user",
+                        "parameters": [
+                            {
+                                "name": "body",
+                                "in": "body",
+                                "required": True,
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": {"type": "string"},
+                                        "email": {"type": "string"}
+                                    },
+                                    "required": ["name", "email"]
+                                }
+                            }
+                        ],
+                        "responses": {
+                            "201": {
+                                "description": "User created",
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "id": {"type": "integer"},
+                                        "name": {"type": "string"},
+                                        "email": {"type": "string"}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "/users/{id}": {
+                    "get": {
+                        "operationId": "getUserById",
+                        "summary": "Get user",
+                        "description": "Get a specific user by ID",
+                        "parameters": [
+                            {
+                                "name": "id",
+                                "in": "path",
+                                "type": "string",
+                                "required": True
+                            }
+                        ],
+                        "responses": {
+                            "200": {
+                                "description": "User details",
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "id": {"type": "integer"},
+                                        "name": {"type": "string"},
+                                        "email": {"type": "string"}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    
+    def test_detect_swagger2_version(self, discovery, swagger2_spec):
+        """Test that Swagger 2.0 version is correctly detected."""
+        version = discovery._detect_spec_version(swagger2_spec)
+        assert version == "swagger_2"
+    
+    def test_swagger2_base_url_extraction(self, discovery, swagger2_spec):
+        """Test base URL extraction from Swagger 2.0 (host + basePath + schemes)."""
+        discovery._spec_version = "swagger_2"
+        base_url = discovery._extract_base_url(swagger2_spec)
+        assert base_url == "https://api.example.com/v1"
+    
+    def test_swagger2_base_url_multiple_schemes(self, discovery):
+        """Test base URL extraction with multiple schemes (uses first one)."""
+        spec = {
+            "swagger": "2.0",
+            "host": "api.example.com",
+            "basePath": "/api",
+            "schemes": ["http", "https"]
+        }
+        discovery._spec_version = "swagger_2"
+        base_url = discovery._extract_base_url(spec)
+        assert base_url == "http://api.example.com/api"
+    
+    def test_swagger2_base_url_no_schemes(self, discovery):
+        """Test base URL extraction defaults to https when no schemes."""
+        spec = {
+            "swagger": "2.0",
+            "host": "api.example.com",
+            "basePath": "/v2"
+        }
+        discovery._spec_version = "swagger_2"
+        base_url = discovery._extract_base_url(spec)
+        assert base_url == "https://api.example.com/v2"
+    
+    def test_swagger2_response_schema_parsing(self, discovery, swagger2_spec):
+        """Test that Swagger 2.0 response schemas are correctly parsed."""
+        discovery._spec_version = "swagger_2"
+        responses = swagger2_spec["paths"]["/users"]["get"]["responses"]
+        
+        schema = discovery._parse_responses(responses, swagger2_spec, {})
+        
+        assert schema is not None
+        assert schema["type"] == "array"
+        assert "items" in schema
+        assert schema["items"]["type"] == "object"
+    
+    def test_swagger2_body_parameter_parsing(self, discovery, swagger2_spec):
+        """Test that Swagger 2.0 body parameters are correctly parsed."""
+        discovery._spec_version = "swagger_2"
+        post_operation = swagger2_spec["paths"]["/users"]["post"]
+        body_param = post_operation["parameters"][0]
+        
+        params = discovery._parse_swagger2_body_parameter(body_param, swagger2_spec, {})
+        
+        assert "name" in params
+        assert "email" in params
+        assert params["name"]["type"] == "string"
+        assert params["name"]["required"] == True
+        assert params["name"]["location"] == "body"
+        assert params["email"]["required"] == True
+    
+    @patch('ocp_agent.schema_discovery.requests.get')
+    def test_discover_swagger2_api(self, mock_get, discovery, swagger2_spec):
+        """Test full API discovery with Swagger 2.0 spec."""
+        mock_response = Mock()
+        mock_response.json.return_value = swagger2_spec
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+        
+        api_spec = discovery.discover_api("https://api.example.com/swagger.json")
+        
+        assert api_spec.title == "Swagger 2.0 API"
+        assert api_spec.version == "1.0.0"
+        assert api_spec.base_url == "https://api.example.com/v1"
+        assert len(api_spec.tools) == 3
+        
+        # Check GET /users
+        get_users = next(t for t in api_spec.tools if t.name == "getUsers")
+        assert get_users.method == "GET"
+        assert get_users.path == "/users"
+        assert "limit" in get_users.parameters
+        assert get_users.response_schema is not None
+        assert get_users.response_schema["type"] == "array"
+        
+        # Check POST /users
+        post_users = next(t for t in api_spec.tools if t.name == "createUser")
+        assert post_users.method == "POST"
+        assert post_users.path == "/users"
+        assert "name" in post_users.parameters
+        assert "email" in post_users.parameters
+        assert post_users.parameters["name"]["required"] == True
+        assert post_users.response_schema is not None
+        
+        # Check GET /users/{id}
+        get_user = next(t for t in api_spec.tools if t.name == "getUserById")
+        assert get_user.method == "GET"
+        assert get_user.path == "/users/{id}"
+        assert "id" in get_user.parameters
+        assert get_user.parameters["id"]["location"] == "path"
+        assert get_user.response_schema is not None
+
+
 class TestResourceFiltering:
     """Test resource-based filtering functionality for discover_api method."""
     
