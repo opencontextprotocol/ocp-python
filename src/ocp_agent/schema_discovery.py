@@ -9,9 +9,11 @@ import json
 import re
 import requests
 import logging
+import yaml
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from urllib.parse import urljoin
+from pathlib import Path
 from openapi_spec_validator import validate
 
 from .errors import SchemaDiscoveryError
@@ -59,12 +61,12 @@ class OCPSchemaDiscovery:
         self.cached_specs: Dict[str, OCPAPISpec] = {}
         self._spec_version: Optional[str] = None
     
-    def discover_api(self, spec_url: str, base_url: Optional[str] = None, include_resources: Optional[List[str]] = None, path_prefix: Optional[str] = None) -> OCPAPISpec:
+    def discover_api(self, spec_path: str, base_url: Optional[str] = None, include_resources: Optional[List[str]] = None, path_prefix: Optional[str] = None) -> OCPAPISpec:
         """
         Discover API capabilities from OpenAPI specification.
         
         Args:
-            spec_url: URL to OpenAPI specification (JSON or YAML)
+            spec_path: URL or file path to OpenAPI specification (JSON or YAML)
             base_url: Optional override for API base URL
             include_resources: Optional list of resource names to filter tools by (case-insensitive, first resource segment matching)
             path_prefix: Optional path prefix to strip before filtering (e.g., '/v1', '/api/v2')
@@ -72,19 +74,22 @@ class OCPSchemaDiscovery:
         Returns:
             OCPAPISpec with discovered tools and capabilities
         """
+        # Normalize cache key (absolute path for files, URL as-is)
+        cache_key = self._normalize_cache_key(spec_path)
+        
         # Check cache first
-        if spec_url in self.cached_specs:
-            return self.cached_specs[spec_url]
+        if cache_key in self.cached_specs:
+            return self.cached_specs[cache_key]
 
         try:
             # Fetch, validate, detect version, and parse OpenAPI spec
-            spec_data = self._fetch_spec(spec_url)
+            spec_data = self._fetch_spec(spec_path)
             self._validate_spec(spec_data)
             self._spec_version = self._detect_spec_version(spec_data)
             parsed_spec = self._parse_openapi_spec(spec_data, base_url)
             
             # Cache for future use
-            self.cached_specs[spec_url] = parsed_spec
+            self.cached_specs[cache_key] = parsed_spec
             
             # Apply resource filtering if specified (only on newly parsed specs)
             if include_resources:
@@ -104,14 +109,60 @@ class OCPSchemaDiscovery:
                 raise
             raise SchemaDiscoveryError(f"Failed to discover API: {e}")
     
-    def _fetch_spec(self, spec_url: str) -> Dict[str, Any]:
+    def _normalize_cache_key(self, spec_path: str) -> str:
+        """Normalize cache key: URLs as-is, file paths to absolute."""
+        if spec_path.startswith(('http://', 'https://')):
+            return spec_path
+        return str(Path(spec_path).expanduser().resolve())
+    
+    def _fetch_spec(self, spec_path: str) -> Dict[str, Any]:
+        """Fetch OpenAPI spec from URL or local file."""
+        if spec_path.startswith(('http://', 'https://')):
+            return self._fetch_from_url(spec_path)
+        else:
+            return self._fetch_from_file(spec_path)
+    
+    def _fetch_from_url(self, url: str) -> Dict[str, Any]:
         """Fetch OpenAPI specification from URL"""
         try:
-            response = requests.get(spec_url, timeout=DEFAULT_SPEC_TIMEOUT)
+            response = requests.get(url, timeout=DEFAULT_SPEC_TIMEOUT)
             response.raise_for_status()
             return response.json()
         except Exception as e:
-            raise SchemaDiscoveryError(f"Failed to fetch OpenAPI spec from {spec_url}: {e}")
+            raise SchemaDiscoveryError(f"Failed to fetch OpenAPI spec from {url}: {e}")
+    
+    def _fetch_from_file(self, file_path: str) -> Dict[str, Any]:
+        """Load OpenAPI specification from local JSON or YAML file."""
+        try:
+            # Expand ~ and resolve path
+            path = Path(file_path).expanduser().resolve()
+            
+            # Check file exists
+            if not path.exists():
+                raise SchemaDiscoveryError(f"File not found: {file_path}")
+            
+            # Validate extension
+            ext = path.suffix.lower()
+            if ext not in ['.json', '.yaml', '.yml']:
+                raise SchemaDiscoveryError(
+                    f"Unsupported file format: {ext}. Supported formats: .json, .yaml, .yml"
+                )
+            
+            # Read and parse based on format
+            with open(path, 'r', encoding='utf-8') as f:
+                if ext == '.json':
+                    return json.load(f)
+                else:  # .yaml or .yml
+                    return yaml.safe_load(f)
+                    
+        except yaml.YAMLError as e:
+            raise SchemaDiscoveryError(f"Invalid YAML in file {file_path}: {e}")
+        except json.JSONDecodeError as e:
+            raise SchemaDiscoveryError(f"Invalid JSON in file {file_path}: {e}")
+        except SchemaDiscoveryError:
+            raise
+        except Exception as e:
+            raise SchemaDiscoveryError(f"Failed to load spec from {file_path}: {e}")
     
     def _validate_spec(self, spec_data: Dict[str, Any]) -> None:
         """Validate OpenAPI specification structure and version compatibility"""

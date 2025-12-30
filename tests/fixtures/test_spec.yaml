@@ -1,0 +1,21 @@
+openapi: 3.0.0
+info:
+  title: Test API from YAML
+  version: 1.0.0
+servers:
+  - url: https://api.example.com
+paths:
+  /yaml-test:
+    get:
+      operationId: getYamlTest
+      summary: YAML test endpoint
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string

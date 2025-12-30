@@ -6,6 +6,7 @@ import pytest
 import json
 from unittest.mock import Mock, patch, MagicMock
 from ocp_agent.schema_discovery import OCPSchemaDiscovery, OCPTool, OCPAPISpec
+from ocp_agent.errors import SchemaDiscoveryError
 
 
 class TestOCPSchemaDiscovery:
@@ -897,6 +898,106 @@ class TestOCPAPISpec:
         assert len(api_spec.tools) == 2
         assert api_spec.tools[0].name == "tool1"
         assert api_spec.tools[1].name == "tool2"
+
+
+class TestLocalFileLoading:
+    """Test loading OpenAPI specs from local files."""
+    
+    @pytest.fixture
+    def discovery(self):
+        """Create a schema discovery instance."""
+        return OCPSchemaDiscovery()
+    
+    def test_load_json_file_absolute_path(self, discovery):
+        """Test loading JSON spec from absolute file path."""
+        import os
+        spec_path = os.path.join(os.path.dirname(__file__), 'fixtures', 'test_spec.json')
+        
+        api_spec = discovery.discover_api(spec_path)
+        
+        assert api_spec.title == "Test API from File"
+        assert api_spec.version == "1.0.0"
+        assert len(api_spec.tools) == 1
+        assert api_spec.tools[0].name == "getTest"
+    
+    def test_load_json_file_relative_path(self, discovery):
+        """Test loading JSON spec from relative file path."""
+        spec_path = "tests/fixtures/test_spec.json"
+        
+        api_spec = discovery.discover_api(spec_path)
+        
+        assert api_spec.title == "Test API from File"
+        assert len(api_spec.tools) == 1
+    
+    def test_load_yaml_file(self, discovery):
+        """Test loading YAML spec from file."""
+        spec_path = "tests/fixtures/test_spec.yaml"
+        
+        api_spec = discovery.discover_api(spec_path)
+        
+        assert api_spec.title == "Test API from YAML"
+        assert api_spec.version == "1.0.0"
+        assert len(api_spec.tools) == 1
+        assert api_spec.tools[0].name == "getYamlTest"
+    
+    def test_file_not_found(self, discovery):
+        """Test error when file doesn't exist."""
+        with pytest.raises(SchemaDiscoveryError) as exc_info:
+            discovery.discover_api("nonexistent.json")
+        
+        assert "File not found" in str(exc_info.value)
+    
+    def test_unsupported_file_format(self, discovery):
+        """Test error for unsupported file format."""
+        import tempfile
+        import os
+        
+        # Create a temporary .txt file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            f.write('{"test": "data"}')
+            temp_path = f.name
+        
+        try:
+            with pytest.raises(SchemaDiscoveryError) as exc_info:
+                discovery.discover_api(temp_path)
+            
+            assert "Unsupported file format: .txt" in str(exc_info.value)
+            assert "Supported formats: .json, .yaml, .yml" in str(exc_info.value)
+        finally:
+            os.unlink(temp_path)
+    
+    def test_invalid_json(self, discovery):
+        """Test error for invalid JSON file."""
+        spec_path = "tests/fixtures/invalid.json"
+        
+        with pytest.raises(SchemaDiscoveryError) as exc_info:
+            discovery.discover_api(spec_path)
+        
+        assert "Invalid JSON" in str(exc_info.value)
+    
+    def test_invalid_yaml(self, discovery):
+        """Test error for invalid YAML file."""
+        spec_path = "tests/fixtures/invalid.yaml"
+        
+        with pytest.raises(SchemaDiscoveryError) as exc_info:
+            discovery.discover_api(spec_path)
+        
+        assert "Invalid YAML" in str(exc_info.value)
+    
+    def test_cache_normalization(self, discovery):
+        """Test that different paths to same file use same cache entry."""
+        import os
+        
+        # Load with relative path
+        rel_path = "tests/fixtures/test_spec.json"
+        api_spec1 = discovery.discover_api(rel_path)
+        
+        # Load with absolute path
+        abs_path = os.path.join(os.path.dirname(__file__), 'fixtures', 'test_spec.json')
+        api_spec2 = discovery.discover_api(abs_path)
+        
+        # Should be the same cached instance
+        assert api_spec1 is api_spec2
 
 
 class TestSwagger2Support:
