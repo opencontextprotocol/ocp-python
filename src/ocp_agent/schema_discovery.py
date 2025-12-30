@@ -14,7 +14,6 @@ from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from urllib.parse import urljoin
 from pathlib import Path
-from openapi_spec_validator import validate
 
 from .errors import SchemaDiscoveryError
 
@@ -82,9 +81,8 @@ class OCPSchemaDiscovery:
             return self.cached_specs[cache_key]
 
         try:
-            # Fetch, validate, detect version, and parse OpenAPI spec
+            # Fetch, detect version, and parse OpenAPI spec
             spec_data = self._fetch_spec(spec_path)
-            self._validate_spec(spec_data)
             self._spec_version = self._detect_spec_version(spec_data)
             parsed_spec = self._parse_openapi_spec(spec_data, base_url)
             
@@ -163,13 +161,6 @@ class OCPSchemaDiscovery:
             raise
         except Exception as e:
             raise SchemaDiscoveryError(f"Failed to load spec from {file_path}: {e}")
-    
-    def _validate_spec(self, spec_data: Dict[str, Any]) -> None:
-        """Validate OpenAPI specification structure and version compatibility"""
-        try:
-            validate(spec_data)
-        except Exception as e:
-            raise SchemaDiscoveryError(f"Invalid OpenAPI specification: {e}")
     
     def _detect_spec_version(self, spec: Dict[str, Any]) -> str:
         """Detect OpenAPI/Swagger version from spec.
