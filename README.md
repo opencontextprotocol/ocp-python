@@ -5,39 +5,89 @@ Context-aware HTTP client framework for AI agents.
 ## Installation
 
 ```bash
-pip install open-context-agent
+pip install ocp-agent
 # or with poetry
-poetry add open-context-agent
+poetry add ocp-agent
 ```
 
 ## Quick Start
 
 ```python
-from ocp_agent import OCPAgent, wrap_api
+from ocp_agent import OCPAgent
 
 # Create an OCP agent
 agent = OCPAgent(
     agent_type="api_explorer",
-    user=None,
+    user="your-username",
     workspace="my-project",
-    agent_goal="Analyze API endpoints"
+    agent_goal="Explore GitHub API"
 )
 
-# Register an API from OpenAPI specification
-api_spec = agent.register_api(
+# Register an API from the registry (fast lookup)
+github_api = agent.register_api("github")
+
+# Or register from OpenAPI specification URL
+# github_api = agent.register_api(
+#     name="github",
+#     spec_url="https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json"
+# )
+
+# List available tools
+tools = agent.list_tools("github")
+print(f"Found {len(tools)} GitHub API tools")
+
+# Call a tool
+result = agent.call_tool(
+    tool_name="usersGetAuthenticated",
+    api_name="github"
+)
+print(result)
+```
+
+## API Registration & Authentication
+
+The `register_api()` method supports multiple patterns:
+
+```python
+# 1. Registry lookup - fastest, uses community registry
+github_api = agent.register_api("github")
+
+# 2. Registry lookup with authentication
+github_api = agent.register_api(
     name="github",
-    spec_url="https://api.github.com/openapi.json"
+    headers={"Authorization": "token ghp_your_token_here"}
 )
 
-# Create context-aware HTTP client
-github_client = wrap_api(
-    "https://api.github.com",
-    agent.context,
-    headers={"Authorization": "token your_token_here"}
+# 3. Registry lookup with base URL override (e.g., GitHub Enterprise)
+ghe_api = agent.register_api(
+    name="github",
+    base_url="https://github.company.com/api/v3",
+    headers={"Authorization": "token ghp_enterprise_token"}
 )
 
-# All requests include OCP context headers
-response = github_client.get("/user")
+# 4. Direct OpenAPI spec URL
+api = agent.register_api(
+    name="my-api",
+    spec_url="https://api.example.com/openapi.json"
+)
+
+# 5. Direct OpenAPI spec with base URL override and authentication
+api = agent.register_api(
+    name="my-api",
+    spec_url="https://api.example.com/openapi.json",
+    base_url="https://staging-api.example.com",  # Override for testing
+    headers={"X-API-Key": "your_api_key_here"}
+)
+
+# 6. Local OpenAPI file (JSON or YAML)
+api = agent.register_api(
+    name="local-api",
+    spec_url="file:///path/to/openapi.yaml",
+    base_url="http://localhost:8000"
+)
+
+# Headers are automatically included in all tool calls
+result = agent.call_tool("usersGetAuthenticated", api_name="github")
 ```
 
 ## Core Components
@@ -69,16 +119,23 @@ context.update_goal(new_goal)
 context.to_dict()
 ```
 
-### HTTP Client Functions
+### HTTP Client
 
 ```python
-from ocp_agent import wrap_api, OCPHTTPClient
+from ocp_agent import OCPHTTPClient, AgentContext
 
-# Create API-specific client
-api_client = wrap_api(base_url, context, headers=None)
+# Create context
+context = AgentContext(
+    agent_type="api_client",
+    user="username",
+    workspace="project"
+)
 
-# Create OCP-aware HTTP client directly
-client = OCPHTTPClient(context)
+# Create OCP-aware HTTP client
+client = OCPHTTPClient(context, base_url="https://api.example.com")
+
+# Make requests with automatic OCP context headers
+response = client.get("/endpoint")
 ```
 
 ## Development
