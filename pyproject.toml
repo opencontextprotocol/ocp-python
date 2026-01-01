@@ -6,6 +6,7 @@ authors = ["OCP Contributors"]
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/opencontextprotocol/ocp-python"
+homepage = "https://opencontextprotocol.io"
 keywords = ["ocp", "open-context-protocol", "ai", "agent", "context", "http", "api", "openapi"]
 classifiers = [
     "Development Status :: 4 - Beta",
