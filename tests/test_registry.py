@@ -60,7 +60,7 @@ class TestOCPRegistry:
     def test_registry_initialization_default_url(self):
         """Test registry initialization with default URL."""
         registry = OCPRegistry()
-        assert registry.registry_url == "https://ocp.nallenscott.dev/api/v1"
+        assert registry.registry_url == "https://opencontextprotocol.io/api/v1"
     
     def test_registry_initialization_custom_url(self):
         """Test registry initialization with custom URL."""

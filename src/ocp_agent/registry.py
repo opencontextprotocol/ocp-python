@@ -15,7 +15,7 @@ from .errors import RegistryUnavailable, APINotFound
 
 
 # Configuration constants
-DEFAULT_REGISTRY_URL = 'https://ocp.nallenscott.dev/api/v1'
+DEFAULT_REGISTRY_URL = 'https://opencontextprotocol.io/api/v1'
 DEFAULT_TIMEOUT = 10
 SEARCH_TIMEOUT = 5
 DEFAULT_PER_PAGE = 10
