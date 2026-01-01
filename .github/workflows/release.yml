@@ -53,6 +53,7 @@ jobs:
     permissions:
       contents: write
       packages: write
+      id-token: write
 
     steps:
       - name: Checkout repository
@@ -90,11 +91,13 @@ jobs:
         with:
           version: latest
 
-      - name: Build and publish to PyPI
+      - name: Build package
         if: steps.changelog.outputs.skipped != 'true'
-        env:
-          POETRY_PYPI_TOKEN_PYPI: ${{ secrets.PYPI_TOKEN }}
-        run: poetry publish --build
+        run: poetry build
+
+      - name: Publish to PyPI
+        if: steps.changelog.outputs.skipped != 'true'
+        uses: pypa/gh-action-pypi-publish@release/v1
 
       - name: Create GitHub Release
         if: steps.changelog.outputs.skipped != 'true'
