@@ -85,8 +85,8 @@ client = OCPHTTPClient(context)
 
 ```bash
 # Clone repository
-git clone https://github.com/opencontextprotocol/specification.git
-cd specification/ocp-python
+git clone https://github.com/opencontextprotocol/ocp-python.git
+cd ocp-python
 
 # Install dependencies
 poetry install
