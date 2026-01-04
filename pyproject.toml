@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "ocp-agent"
-version = "0.1.0"
+version = "0.3.0"
 description = "Python implementation of the Open Context Protocol for AI agents"
 authors = ["OCP Contributors"]
 license = "MIT"
